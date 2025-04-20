@@ -1,3 +1,24 @@
+# Your Role
+
+You are a 10x senior developer who can code anything with great precision, without flaws. You make as few edits and changes as possible to achive the desired objective.
+
+# Instructions
+- DO NOT CHANGE EXISTING CODE UNLESS NECESSARY FOR THE INTENDED PURPOSE.
+- Make minimum changes to achieve the objective. Do not change the code irrelevant to achieving our objective. 
+- Write as little code as possible to accomplish the given task.
+- Change the existing code to absolute minimum to achived the desired objective.
+- DO NOT create large code files. Keep the number of lines below 200 as much as possible
+- Write comment describing what each file does.
+- When making changes to multiple files or creating new functions etc., make sure that the execution flow works end to end and the function signatures are correct at the calling code. 
+-Write and run integration tests for each significant change 
+- Write integration tests to check if the new /updated code is properly integrated with @parse_main.py and make sure the integration tests run successfully
+- To make sure everything works, run @parse_main.py and make sure the generated ouput conforms to the expected format
+- Do not stop until done
+- Keep all test files under ./tests/ folder
+- Use docling code from docling/docling and documentation from  docling/docs folder to verify your usage of docling code.
+
+
+
 Below you will find a variety of important rules spanning:
 - the dev_workflow
 - the .cursorrules document self-improvement workflow
@@ -472,3 +493,20 @@ alwaysApply: true
   - Document breaking changes
 
 Follow CURSOR_RULES for proper rule formatting and structure of cursor rule sections.
+
+
+
+# Instructions
+- DO NOT CHANGE EXISTING CODE UNLESS NECESSARY FOR THE INTENDED PURPOSE.
+- Make minimum changes to achieve the objective. Do not change the code irrelevant to achieving our objective. 
+- Write as little code as possible to accomplish the given task.
+- Change the existing code to absolute minimum to achived the desired objective.
+- DO NOT create large code files. Keep the number of lines below 200 as much as possible
+- Write comment describing what each file does.
+- When making changes to multiple files or creating new functions etc., make sure that the execution flow works end to end and the function signatures are correct at the calling code. 
+-Write and run integration tests for each significant change 
+- Write integration tests to check if the new /updated code is properly integrated with @parse_main.py and make sure the integration tests run successfully
+- To make sure everything works, run @parse_main.py and make sure the generated ouput conforms to the expected format
+- Do not stop until done
+- Keep all test files under ./tests/ folder
+- Use docling code from docling/docling and documentation from  docling/docs folder to verify your usage of docling code.

@@ -1,0 +1,64 @@
+# Docling Configuration File
+# Contains settings for the docling library used by parse_main.py
+
+# Batch concurrency settings for processing documents
+batch_concurrency:
+  # Number of documents to process in a single batch
+  doc_batch_size: 1
+  # Maximum number of documents to process concurrently
+  doc_batch_concurrency: 1
+  # Number of pages to process in a single batch
+  page_batch_size: 5
+  # Maximum number of pages to process concurrently
+  page_batch_concurrency: 2
+
+# Debug settings for visualizing document processing
+debug:
+  # Whether to visualize the page layout during processing
+  visualize_page_layout: false
+  # Whether to visualize text blocks during processing
+  visualize_text_blocks: false
+  # Whether to visualize tables during processing
+  visualize_tables: false
+  # Whether to visualize pictures during processing
+  visualize_pictures: false
+  # Path for debug output files
+  debug_output_path: "debug_output"
+  # Maximum number of pages to process (0 for unlimited)
+  max_num_pages: 0
+
+# Directory for caching intermediate results
+cache_dir: ".docling_cache"
+
+# Path for storing artifacts (e.g., extracted images)
+artifacts_path: "artifacts"
+
+# Whether to allow loading external plugins
+allow_external_plugins: true
+
+# Application settings
+app_settings:
+  cache_dir: ".cache"  # Directory to store cache files
+  artifacts_path: "artifacts"  # Directory to store processing artifacts
+
+# Processing settings
+processing:
+  extract_text: true              # Whether to extract text
+  extract_tables: true            # Whether to extract tables
+  extract_pictures: true          # Whether to extract pictures
+  ocr_enabled: false              # Whether to use OCR for images
+  ocr_language: "eng"             # Language for OCR
+
+perf:
+  elements_batch_size: 16
+
+  doc_batch_size: 2
+  doc_batch_concurrency: 2
+  page_batch_size: 4
+  page_batch_concurrency: 2
+
+  visualize_cells: false
+  visualize_ocr: false
+  visualize_layout: false
+  visualize_raw_layout: false
+  profile_pipeline_timings: false 
