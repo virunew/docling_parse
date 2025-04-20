@@ -52,6 +52,9 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
 ## System Components
 - **Parser Core**: Python module implementing the document parsing logic.
 - **Element Resolver**: Resolves `$ref` pointers to build a complete element map.
+- **Main Parsing Program (parse_main.py)**: Entry point for the application that handles PDF parsing with docling and generates the element dictionary.
+- **Image Extraction Module**: Uses docling library to extract images and maintain links to their references.
+- **OCR Processor**: Extracts text from images in the document and formats it in markdown.
 - **Sequence Flattener**: Determines correct reading order of document elements.
 - **Breadcrumb Generator**: Creates hierarchical path for each content chunk.
 - **Image Handler**: Decodes and saves images to external storage.
@@ -77,12 +80,16 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
 - **File System Integration**: Reads input JSON and writes output JSON and images.
 - **Base64 Decoding**: Converts image data URIs to binary image files.
 - **JSON Processing**: Handles complex nested structures with cross-references.
+- **Docling Library Integration**: Uses docling to extract images from PDF documents.
+- **OCR Integration**: Uses OCR technology to extract text from images.
 - **Potential Future Integration**: Optional PostgreSQL direct insertion.
 
 ## Infrastructure Requirements
 - Python 3.x runtime environment.
 - File system access for reading input and writing output.
 - External storage location for image files with appropriate permissions.
+- OCR library (Tesseract or similar) for image text extraction.
+- Docling library for PDF processing and image extraction.
 - Minimal memory requirements for typical document sizes.
 - No database connection required for core functionality.
 
@@ -97,16 +104,34 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
    - Element map building functionality
    - Document sequence flattening
    
-2. **External Image Storage**:
+2. **Main Parsing Program (parse_main.py)**:
+   - Process PDF documents using the docling library
+   - Extract text and images into usable format
+   - Generate the dictionary structure needed by the rest of the application
+   - Integrate with the element map builder and other components
+   - Command-line interface for input/output specification
+
+3. **Image Processing and OCR**:
+   - Image extraction using docling library
+   - Link images to their references in the document
+   - Extract text from images using OCR
+   - Format text blocks in markdown with three sections:
+     * Preceding text (text appearing before the image)
+     * Image text (text extracted from the image via OCR)
+     * Succeeding text (text appearing after the image)
+   - Integrate OCR results into the element map
+
+4. **External Image Storage**:
    - Image data URI decoding from base64
    - MIME type detection and appropriate file extension selection
    - File saving with unique naming based on doc_id and block_id
    - Path recording in output's external_files field
    - Directory creation and collision handling
    
-3. **Output Generation**:
+5. **Output Generation**:
    - Structured JSON formatting per documented schema
-   - Database schema field mapping to fusa_library table
+   - Database schema field mapping to fusa_library table 
+   - Configurable schema field mapping to support multiple mappings 
    - Special fields population with breadcrumbs and metadata
    - Basic error handling for file operations and JSON parsing
    - Command-line interface with required arguments
@@ -121,7 +146,7 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
    - Table content extraction improvements
    - Image analysis for additional metadata (dimensions, format details)
    - Better handling of nested lists and complex layouts
-   - OCR text extraction from images (if not already in Docling)
+   - Enhanced OCR accuracy for complex images
    
 3. **Integration Capabilities**:
    - Direct database insertion option
@@ -139,18 +164,21 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
 # Logical Dependency Chain
 1. **Foundation Components**:
    - Element map builder (to resolve all references)
+   - Main parsing program (parse_main.py) to process PDF documents
+   - Image extraction using docling library
    - Document sequence flattener (to determine reading order)
    - Basic metadata extraction from provenance data
    
 2. **Content Processing Pipeline**:
    - Text content extraction with proper labels
+   - Image text extraction using OCR
    - Table content formatting into grid structures
    - Image handling and external storage implementation
    - Furniture element identification and extraction
    
 3. **Context Enhancement**:
    - Breadcrumb generation with hierarchical section headers
-   - Context snippet extraction (50 chars before/after)
+   - Context snippet extraction (50 words before/after)
    - Caption association with tables and images
    - Bounding box coordinate conversion
    
@@ -177,6 +205,10 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
   - *Mitigation*: Include detailed error reporting and graceful failure modes for image processing.
   - *Mitigation*: Validate MIME types before processing to avoid corruption.
 
+- **OCR Accuracy**: Text extraction from images may be unreliable for low-quality or complex images.
+  - *Mitigation*: Implement confidence thresholds and fallback text for poor OCR results.
+  - *Mitigation*: Consider multiple OCR engines for improved accuracy.
+
 - **Breadcrumb Accuracy**: Complex documents may have unclear section hierarchies.
   - *Mitigation*: Implement multiple strategies for breadcrumb generation with sensible defaults.
   - *Mitigation*: Ensure full header text is preserved (not truncated).
@@ -202,14 +234,17 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
 # Appendix
 
 ## Functional Requirements Details
-The parser meets 28 specific functional requirements (FR01-FR28) including:
+The parser meets 30+ specific functional requirements including:
 - Accepting DoclingDocument v1.3.0 JSON as input
+- Processing PDF documents using the docling library
 - Resolving $ref pointers to build an internal representation
 - Identifying furniture elements by content_layer attribute
 - Extracting text content from furniture elements
 - Determining correct reading order of main body content
 - Generating hierarchical breadcrumbs using full header text
 - Extracting text, table (as formatted grid), and image content
+- Using OCR to extract text from images
+- Formatting text blocks with preceding text, image text, and succeeding text
 - Finding captions and context snippets for tables and images
 - Extracting metadata including filename, page_no, and bbox
 - Converting bbox coordinates to integers for database storage
@@ -248,6 +283,7 @@ The output JSON chunk fields map exactly to the `fusa_library` table columns as 
 - `creator_tool`: Fixed value "DoclingToJsonScript_V1.1"
 - `external_files`: Relative or absolute path to saved image for images, null otherwise
 - `text_block`: Breadcrumb + content text or placeholder for images/tables
+  - For images: includes preceding text, image text (from OCR), and succeeding text in markdown format
 - `header_text`: Breadcrumb string
 - `text_search`: Raw text content or caption for search indexing
 - `user_tags`: Set to null
@@ -283,7 +319,7 @@ The output JSON has the following structure:
       "created_date": null,
       "creator_tool": "DoclingToJsonScript_V1.1",
       "external_files": "/path/to/images/doc_1.png",
-      "text_block": "Document > Section > Subsection\n\nContent text or placeholder",
+      "text_block": "Document > Section > Subsection\n\nPreceding text\n\n[Image Text: Text extracted from image via OCR]\n\nSucceeding text",
       "header_text": "Document > Section > Subsection",
       "text_search": "Raw content text or caption",
       "user_tags": null,
@@ -304,7 +340,8 @@ The output JSON has the following structure:
         "docling_ref": "#/texts/0",
         "image_mimetype": "image/png",
         "image_width": 499,
-        "image_height": 194
+        "image_height": 194,
+        "image_ocr_text": "Text extracted from the image via OCR"
       }
     }
   ],
@@ -323,6 +360,9 @@ The output JSON has the following structure:
 
 ## Code Structure
 The parser is organized into the following components:
+- **Entry Point**
+  - `parse_main.py`: Main program for PDF document processing
+  
 - **Helper Functions**
   - `build_element_map()`: Creates a map from self_ref to element object
   - `get_flattened_body_sequence()`: Creates ordered list of elements
@@ -332,6 +372,7 @@ The parser is organized into the following components:
   - `format_table_content()`: Converts table data to grid format
   - `convert_bbox()`: Transforms bbox coordinates to integers
   - `save_image_externally()`: Decodes and saves image data
+  - `extract_image_text()`: Performs OCR on images to extract text
 
 - **Main Processing Function**
   - `process_docling_json_to_sql_format()`: Orchestrates the entire parsing process
@@ -348,10 +389,13 @@ The parser implementation addresses several non-functional requirements:
 - Well-commented code with clear structure
 - Configurability for image storage location
 - Reasonable performance for typical document sizes
+- OCR configurability for different quality thresholds
 
 ## Implementation Considerations
 - The parser strictly follows the DoclingDocument v1.3.0 schema
 - Image paths are configurable to support different deployment scenarios
+- OCR is used to extract text from images when available
+- Text blocks for images include preceding text, image text, and succeeding text
 - Breadcrumbs are never truncated, preserving full header text
 - Context snippets are limited to 50 characters for reasonable size
 - The tool is designed for command-line usage without direct database interaction
