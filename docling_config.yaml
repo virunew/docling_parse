@@ -4,13 +4,13 @@
 # Batch concurrency settings for processing documents
 batch_concurrency:
   # Number of documents to process in a single batch
-  doc_batch_size: 1
+  doc_batch_size: 5
   # Maximum number of documents to process concurrently
-  doc_batch_concurrency: 1
+  doc_batch_concurrency: 2
   # Number of pages to process in a single batch
-  page_batch_size: 5
+  page_batch_size: 10
   # Maximum number of pages to process concurrently
-  page_batch_concurrency: 2
+  page_batch_concurrency: 4
 
 # Debug settings for visualizing document processing
 debug:
@@ -22,16 +22,20 @@ debug:
   visualize_tables: false
   # Whether to visualize pictures during processing
   visualize_pictures: false
+  # Whether to visualize text segments during processing
+  visualize_text_segments: false
+  # Whether to visualize flow during processing
+  visualize_flow: false
   # Path for debug output files
-  debug_output_path: "debug_output"
+  debug_output_path: "./debug_output"
   # Maximum number of pages to process (0 for unlimited)
   max_num_pages: 0
 
 # Directory for caching intermediate results
-cache_dir: ".docling_cache"
+cache_dir: "./cache"
 
 # Path for storing artifacts (e.g., extracted images)
-artifacts_path: "artifacts"
+artifacts_path: "./artifacts"
 
 # Whether to allow loading external plugins
 allow_external_plugins: true

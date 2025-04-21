@@ -446,28 +446,66 @@ class TestSaveOutput(unittest.TestCase):
         """Set up test fixtures."""
         self.temp_dir = tempfile.TemporaryDirectory()
         self.output_dir = Path(self.temp_dir.name)
+        
+        # Create a mock DoclingDocument
+        self.mock_doc = MagicMock()
+        self.mock_doc.export_to_dict.return_value = {
+            "schema_name": "DoclingDocument",
+            "version": "1.3.0",
+            "name": "test_doc",
+            "texts": [{"id": "text1", "text": "Sample text from PDF"}],
+            "body": {"self_ref": "#/body"},
+            "furniture": {"self_ref": "#/furniture"}
+        }
     
     def tearDown(self):
         """Clean up test fixtures."""
         self.temp_dir.cleanup()
     
     def test_save_output(self):
-        """Test that output is saved correctly."""
-        # Create test data
-        element_map = {"text1": {"text": "Sample text from PDF"}}
-        
+        """Test that DoclingDocument is saved correctly as JSON."""
         # Call the function
-        save_output(element_map, self.output_dir)
+        output_file = save_output(self.mock_doc, self.output_dir)
         
         # Check that the output file was created
-        output_file = self.output_dir / "element_map.json"
         self.assertTrue(output_file.exists())
         
         # Check the contents of the output file
         with open(output_file) as f:
             saved_data = json.load(f)
         
-        self.assertEqual(saved_data, element_map)
+        # Verify the data was saved correctly
+        self.assertEqual(saved_data["schema_name"], "DoclingDocument")
+        self.assertEqual(saved_data["version"], "1.3.0")
+        self.assertIn("texts", saved_data)
+        self.assertIn("body", saved_data)
+        self.assertIn("furniture", saved_data)
+        
+        # Verify export_to_dict was called
+        self.mock_doc.export_to_dict.assert_called_once()
+    
+    def test_save_output_invalid_document(self):
+        """Test that save_output raises TypeError for invalid document object."""
+        # Create an object without export_to_dict method
+        invalid_doc = {"text": "Not a DoclingDocument"}
+        
+        # Check that the function raises TypeError
+        with self.assertRaises(TypeError):
+            save_output(invalid_doc, self.output_dir)
+    
+    def test_save_output_creates_directory(self):
+        """Test that save_output creates the output directory if it doesn't exist."""
+        # Use a nested directory that doesn't exist
+        nested_dir = self.output_dir / "nested" / "output"
+        
+        # Call the function
+        output_file = save_output(self.mock_doc, nested_dir)
+        
+        # Check that the output file was created
+        self.assertTrue(output_file.exists())
+        
+        # Check that the directory was created
+        self.assertTrue(nested_dir.exists())
 
 
 class TestMainFunction(unittest.TestCase):
@@ -506,8 +544,13 @@ class TestMainFunction(unittest.TestCase):
         mock_args.config_file = None
         mock_parse_args.return_value = mock_args
         
-        mock_element_map = {"text1": {"text": "Sample text from PDF"}}
-        mock_process.return_value = mock_element_map
+        # Create a mock DoclingDocument
+        mock_doc = MagicMock()
+        mock_process.return_value = mock_doc
+        
+        # Set up mock save_output return value
+        mock_output_file = Path("output/element_map.json")
+        mock_save.return_value = mock_output_file
         
         # Call the function
         exit_code = main()
@@ -517,8 +560,8 @@ class TestMainFunction(unittest.TestCase):
         
         # Check that the right functions were called
         mock_setup_logging.assert_called_once_with("INFO")
-        mock_process.assert_called_once_with(str(self.pdf_path), "output")
-        mock_save.assert_called_once_with(mock_element_map, "output")
+        mock_process.assert_called_once_with(str(self.pdf_path), "output", None)
+        mock_save.assert_called_once_with(mock_doc, "output")
     
     @patch('src.parse_main.parse_arguments')
     def test_main_validation_error(self, mock_parse_args):

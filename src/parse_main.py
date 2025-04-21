@@ -202,7 +202,7 @@ def process_pdf_document(pdf_path, output_dir, config_file=None):
         config_file: Path to the configuration file (optional)
     
     Returns:
-        dict: Element map dictionary with extracted content
+        DoclingDocument: The converted document object
     """
     logger = logging.getLogger(__name__)
     logger.info(f"Processing PDF document: {pdf_path}")
@@ -247,49 +247,91 @@ def process_pdf_document(pdf_path, output_dir, config_file=None):
         docling_document = conversion_result.document
         logger.info(f"Document successfully converted: {len(docling_document.pages)} pages found")
         
-        # Build element map from the document
-        element_map = build_element_map(docling_document)
-        
-        # Log summary of extracted elements
-        text_count = len([el for el in element_map.values() if el.get("metadata", {}).get("type") == "paragraph"])
-        picture_count = len([el for el in element_map.values() if el.get("metadata", {}).get("type") == "picture"])
-        table_count = len([el for el in element_map.values() if el.get("metadata", {}).get("type") == "table"])
-        
-        logger.info(f"Element map built successfully with {text_count} texts, {picture_count} pictures, and {table_count} tables")
-        
-        return element_map
+        # Return the DoclingDocument directly
+        return docling_document
         
     except Exception as e:
         logger.exception(f"Error processing PDF document: {e}")
         raise
 
 
-def save_output(element_map, output_dir):
+def save_output(docling_document, output_dir):
     """
-    Save the generated element map to the output directory.
+    Save the DoclingDocument directly to the output directory as JSON.
+    
+    This function serializes a DoclingDocument object to a standardized JSON format
+    using the object's built-in export_to_dict method. The resulting JSON follows
+    the schema defined in the DoclingDocument specification, ensuring compatibility
+    with other tools that consume this format.
+    
+    The output JSON file contains the complete document structure including:
+    - Document metadata (name, version, schema)
+    - Text elements with their content and attributes
+    - Page information and structure
+    - Body and furniture hierarchies
+    - References between elements
     
     Args:
-        element_map: Dictionary containing the processed document elements
-        output_dir: Directory to save output files
+        docling_document: The DoclingDocument object to serialize
+        output_dir: Directory to save the output JSON file (will be created if it doesn't exist)
+        
+    Returns:
+        Path to the created JSON file
+        
+    Raises:
+        TypeError: If docling_document lacks the export_to_dict method
+        IOError: If the file cannot be written to the specified location
+        Exception: For any other serialization errors
     """
-    # Create output directory if it doesn't exist
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-    
-    # Save the element map as JSON
-    output_file = output_path / "element_map.json"
-    
-    logger.info(f"Saving output to {output_file}")
-    
-    with open(output_file, "w") as f:
-        json.dump(element_map, f, indent=2)
-    
-    logger.info(f"Output saved successfully")
+    try:
+        # Validate input
+        if not hasattr(docling_document, 'export_to_dict') or not callable(getattr(docling_document, 'export_to_dict')):
+            raise TypeError("Object does not have an export_to_dict method. Not a valid DoclingDocument.")
+            
+        # Create output directory if it doesn't exist
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Define output file path
+        output_file = output_path / docling_document.name + ".json"
+        
+        logger.info(f"Saving DoclingDocument to {output_file}")
+        
+        # Export the docling document to dict and save as JSON
+        try:
+            doc_dict = docling_document.export_to_dict()
+            with open(output_file, "w") as f:
+                json.dump(doc_dict, f, indent=2)
+            
+            logger.info(f"DoclingDocument saved successfully to {output_file}")
+            return output_file
+            
+        except AttributeError as e:
+            logger.error(f"Failed to export DoclingDocument: {e}")
+            raise TypeError(f"DoclingDocument export_to_dict method failed: {e}")
+            
+        except (json.JSONDecodeError, json.JSONEncoder) as e:
+            logger.error(f"JSON serialization error: {e}")
+            raise Exception(f"Failed to serialize DoclingDocument to JSON: {e}")
+            
+    except IOError as e:
+        logger.error(f"Failed to write output file: {e}")
+        raise IOError(f"Could not write to {output_dir}: {e}")
+        
+    except Exception as e:
+        logger.error(f"Unexpected error in save_output: {e}")
+        raise
 
 
 def main():
     """
     Main function - entry point for the application
+    
+    Processes a PDF document using the docling library and saves the 
+    extracted document structure as a JSON file.
+    
+    Returns:
+        int: 0 for success, 1 for error
     """
     try:
         # Load environment variables from .env file if it exists
@@ -320,13 +362,15 @@ def main():
         output_dir_path = Path(config.output_dir)
         output_dir_path.mkdir(parents=True, exist_ok=True)
         
-        # Process the PDF document and build element map
-        element_map = process_pdf_document(config.pdf_path, config.output_dir, config.config_file)
+        # Process the PDF document
+        docling_document = process_pdf_document(config.pdf_path, config.output_dir, config.config_file)
         
-        # Save the output
-        save_output(element_map, config.output_dir)
+        # Save the output as JSON
+        output_file = save_output(docling_document, config.output_dir)
         
         logging.info(f"Document processing completed successfully")
+        logging.info(f"Output saved to: {output_file}")
+        
         return 0
     except Exception as e:
         logging.error(f"An error occurred during document processing: {e}", exc_info=True)
