@@ -178,7 +178,7 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
    
 3. **Context Enhancement**:
    - Breadcrumb generation with hierarchical section headers
-   - Context snippet extraction (50 words before/after)
+   - Context snippet extraction (a paragraph before and after or 100 words, whichever is larger)
    - Caption association with tables and images
    - Bounding box coordinate conversion
    
@@ -334,8 +334,8 @@ The output JSON has the following structure:
         "page_no": 1,
         "bbox_raw": {"l": 56, "t": 115, "r": 555, "b": 309},
         "caption": "Optional caption text",
-        "context_before_50_chars": "Text appearing before this element (up to 50 chars)",
-        "context_after_50_chars": "Text appearing after this element (up to 50 chars)",
+        "context_before": "Text appearing before this element (a paragraph  or 100 words, whichever is larger)",
+        "context_after": "Text appearing after this element (a paragraph  or 100 words, whichever is larger)",
         "docling_label": "text|table|picture",
         "docling_ref": "#/texts/0",
         "image_mimetype": "image/png",
@@ -397,7 +397,7 @@ The parser implementation addresses several non-functional requirements:
 - OCR is used to extract text from images when available
 - Text blocks for images include preceding text, image text, and succeeding text
 - Breadcrumbs are never truncated, preserving full header text
-- Context snippets are limited to 50 characters for reasonable size
+- Context snippets are limited to a paragraph before and after or 100 words, whichever is larger  
 - The tool is designed for command-line usage without direct database interaction
 - All mandatory fields required by the fusa_library schema are populated
 - Special attention is given to maintaining document structure and hierarchy
