@@ -28,6 +28,11 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
 - Why it's important: Ensures compatibility with the target database schema and downstream applications.
 - How it works: Maps extracted information to predefined fields while maintaining relationships and hierarchy.
 
+## Database Integration
+- What it does: Directly saves processed document chunks to a configurable database system.
+- Why it's important: Eliminates additional steps in the data pipeline, providing immediate data availability.
+- How it works: Provides configurable adapters for PostgreSQL and MongoDB, with initial implementation focused on PostgreSQL integration.
+
 # User Experience
 ## Developer Persona
 - Python developers working with document processing pipelines who need to extract structured data from complex document formats.
@@ -37,14 +42,15 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
 ## Key User Flows
 - User provides a DoclingDocument JSON file and storage location for images.
 - Parser extracts content, saves images externally, and generates standardized JSON output.
-- User receives structured data ready for database ingestion.
-- Minimal configuration required beyond specifying input/output paths and image storage location.
+- User receives structured data ready for database ingestion or can choose direct database insertion.
+- Minimal configuration required beyond specifying input/output paths, image storage location, and database connection parameters.
 
 ## UX Considerations
 - Command-line interface with clear argument requirements.
 - Informative progress and error messages during processing.
 - Structured output that clearly maps to database schema.
 - Documentation of output format and field mappings.
+- Database configuration options with sensible defaults.
 </context>
 <PRD>
 # Technical Architecture
@@ -60,6 +66,7 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
 - **Image Handler**: Decodes and saves images to external storage.
 - **Output Formatter**: Generates the final JSON structure.
 - **CLI Interface**: Processes command-line arguments and handles I/O.
+- **Database Adapter**: Manages connection and insertion of document chunks into configurable database systems.
 
 ## Data Models
 - **Input**: DoclingDocument v1.3.0 JSON schema with nested element references.
@@ -75,6 +82,9 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
   - Each chunk representing a distinct content element from the document
 - **Chunk Object**: Structured data mapping to the `fusa_library` table schema.
   - Contains 30+ fields including content_type, coords, text_block, and metadata
+- **Database Schema**: 
+  - PostgreSQL implementation matches fields in the `fusa_library` table
+  - Future MongoDB option would store documents in a chunks collection
 
 ## APIs and Integrations
 - **File System Integration**: Reads input JSON and writes output JSON and images.
@@ -82,7 +92,7 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
 - **JSON Processing**: Handles complex nested structures with cross-references.
 - **Docling Library Integration**: Uses docling to extract images from PDF documents.
 - **OCR Integration**: Uses OCR technology to extract text from images.
-- **Potential Future Integration**: Optional PostgreSQL direct insertion.
+- **Database Integration**: Direct insertion into configurable database backends (PostgreSQL initially, with MongoDB support planned).
 
 ## Infrastructure Requirements
 - Python 3.x runtime environment.
@@ -90,8 +100,9 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
 - External storage location for image files with appropriate permissions.
 - OCR library (Tesseract or similar) for image text extraction.
 - Docling library for PDF processing and image extraction.
+- PostgreSQL database for direct insertion (initial implementation).
+- Database connection libraries: psycopg2 for PostgreSQL, pymongo for future MongoDB support.
 - Minimal memory requirements for typical document sizes.
-- No database connection required for core functionality.
 
 # Development Roadmap
 
@@ -136,11 +147,20 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
    - Basic error handling for file operations and JSON parsing
    - Command-line interface with required arguments
 
+6. **Database Integration (PostgreSQL)**:
+   - Database connection configuration via command-line arguments
+   - Connection pooling and error handling
+   - Direct insertion into PostgreSQL database matching fusa_library schema
+   - Table creation or validation for new installations
+   - Batch insertion for performance optimization
+   - Transaction management for reliable operation
+
 ## Future Enhancements
 1. **Performance Optimization**:
    - Parallel processing for multiple documents
    - Streaming parser for large files
    - Memory usage improvements for large documents
+   - Bulk database operations for improved throughput
    
 2. **Advanced Content Processing**:
    - Table content extraction improvements
@@ -149,7 +169,7 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
    - Enhanced OCR accuracy for complex images
    
 3. **Integration Capabilities**:
-   - Direct database insertion option
+   - MongoDB database adapter implementation
    - API wrapper for programmatic usage
    - Webhook support for processing notifications
    - Progress reporting for long-running processes
@@ -188,11 +208,18 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
    - JSON formatting with proper nesting
    - Metadata object creation and serialization
    
-5. **CLI and Error Handling**:
+5. **Database Integration**:
+   - Database configuration handling
+   - PostgreSQL connection and table validation
+   - Data insertion with proper field mapping
+   - Transaction and error management
+
+6. **CLI and Error Handling**:
    - Command-line interface with argument parsing
    - Validation and error reporting
    - User feedback mechanisms
    - File I/O handling
+   - Database connection error handling
 
 # Risks and Mitigations
 
@@ -213,10 +240,15 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
   - *Mitigation*: Implement multiple strategies for breadcrumb generation with sensible defaults.
   - *Mitigation*: Ensure full header text is preserved (not truncated).
 
+- **Database Connectivity**: Database connections may fail due to misconfiguration or network issues.
+  - *Mitigation*: Implement robust error handling with clear error messages.
+  - *Mitigation*: Support fallback to JSON output when database connection fails.
+  - *Mitigation*: Provide connection testing utility.
+
 ## MVP Scope
 - **Feature Creep**: The parser may try to do too much beyond its core functionality.
   - *Mitigation*: Focus on essential features first, clearly document non-goals.
-  - *Mitigation*: Defer advanced features like direct database insertion for future versions.
+  - *Mitigation*: Implement PostgreSQL integration first, defer MongoDB for future versions.
 
 - **Schema Evolution**: The Docling schema may change or have undocumented variations.
   - *Mitigation*: Build in some flexibility and version detection where possible.
@@ -230,6 +262,10 @@ The Docling JSON Parser is a Python tool designed to extract structured content 
 - **Storage Requirements**: External image storage needs may be significant for document-heavy workflows.
   - *Mitigation*: Make storage location configurable and document space requirements.
   - *Mitigation*: Consider compression options for large images.
+
+- **Database Load**: Large batch insertions may impact database performance.
+  - *Mitigation*: Implement configurable batch sizes for database operations.
+  - *Mitigation*: Add transaction management for reliable operation.
 
 # Appendix
 
@@ -250,6 +286,10 @@ The parser meets 30+ specific functional requirements including:
 - Converting bbox coordinates to integers for database storage
 - Decoding base64 image data and saving to external location
 - Creating a rich metadata object containing all contextual information
+- Connecting to and inserting data into a PostgreSQL database
+- Supporting configurable database connection parameters
+- Validating database schema compatibility
+- Managing database transactions for reliability
 
 ## Sample Input Structure
 The parser expects DoclingDocument v1.3.0 JSON with the following key structures:
@@ -374,22 +414,29 @@ The parser is organized into the following components:
   - `save_image_externally()`: Decodes and saves image data
   - `extract_image_text()`: Performs OCR on images to extract text
 
+- **Database Interface**
+  - `db_adapter.py`: Abstract base class for database adapters
+  - `postgres_adapter.py`: PostgreSQL implementation of database adapter 
+  - `mongo_adapter.py`: Future MongoDB implementation of database adapter
+
 - **Main Processing Function**
   - `process_docling_json_to_sql_format()`: Orchestrates the entire parsing process
 
 - **Command-line Interface**
   - Argument parsing for input file, output file, image directory, and doc_id
+  - Database connection configuration options
   - File reading and error handling
   - Output formatting and writing
 
 ## Non-Functional Requirements
 The parser implementation addresses several non-functional requirements:
 - Written in Python 3.x
-- Graceful error handling for file operations
+- Graceful error handling for file operations and database connections
 - Well-commented code with clear structure
-- Configurability for image storage location
+- Configurability for image storage location and database connection
 - Reasonable performance for typical document sizes
 - OCR configurability for different quality thresholds
+- Database-agnostic design with adapter pattern for future extensibility
 
 ## Implementation Considerations
 - The parser strictly follows the DoclingDocument v1.3.0 schema
@@ -398,7 +445,10 @@ The parser implementation addresses several non-functional requirements:
 - Text blocks for images include preceding text, image text, and succeeding text
 - Breadcrumbs are never truncated, preserving full header text
 - Context snippets are limited to a paragraph before and after or 100 words, whichever is larger  
-- The tool is designed for command-line usage without direct database interaction
-- All mandatory fields required by the fusa_library schema are populated
+- The tool supports both JSON output and direct database insertion
+- Initial database implementation focuses on PostgreSQL with the fusa_library schema
+- Future MongoDB support will preserve the same logical structure in document format
+- Database connections are configurable via command-line options
+- All mandatory fields required by the database schema are populated
 - Special attention is given to maintaining document structure and hierarchy
 </PRD>

@@ -24,10 +24,6 @@ import time
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
 
-
-
- 
-
 # Import docling library components
 try:
     from docling.document_converter import DocumentConverter
@@ -42,8 +38,17 @@ except ImportError as e:
 # Import the element map builder
 try:
     from element_map_builder import build_element_map
+    # Import the new content extractor module
+    from content_extractor import (
+        extract_text_content, 
+        extract_table_content, 
+        extract_image_content, 
+        is_furniture, 
+        find_sibling_text_in_sequence, 
+        get_captions
+    )
 except ImportError as e:
-    logging.error(f"Error importing element_map_builder: {e}")
+    logging.error(f"Error importing local modules: {e}")
     sys.exit(1)
 
 # Configure logging
@@ -257,50 +262,37 @@ def process_pdf_document(pdf_path, output_dir, config_file=None):
 
 def save_output(docling_document, output_dir):
     """
-    Save the DoclingDocument directly to the output directory as JSON.
-    
-    This function serializes a DoclingDocument object to a standardized JSON format
-    using the object's built-in export_to_dict method. The resulting JSON follows
-    the schema defined in the DoclingDocument specification, ensuring compatibility
-    with other tools that consume this format.
-    
-    The output JSON file contains the complete document structure including:
-    - Document metadata (name, version, schema)
-    - Text elements with their content and attributes
-    - Page information and structure
-    - Body and furniture hierarchies
-    - References between elements
+    Save the DoclingDocument as a JSON file
     
     Args:
-        docling_document: The DoclingDocument object to serialize
-        output_dir: Directory to save the output JSON file (will be created if it doesn't exist)
+        docling_document (DoclingDocument): The document to save
+        output_dir (str or Path): Directory where to save the output
         
     Returns:
-        Path to the created JSON file
+        Path: Path to the saved output file
         
     Raises:
-        TypeError: If docling_document lacks the export_to_dict method
-        IOError: If the file cannot be written to the specified location
-        Exception: For any other serialization errors
+        IOError: If the output directory is not writable
+        TypeError: If the document cannot be exported to dict
+        Exception: For other errors
     """
+    logger.info(f"Saving DoclingDocument to {output_dir}")
+    
     try:
-        # Validate input
-        if not hasattr(docling_document, 'export_to_dict') or not callable(getattr(docling_document, 'export_to_dict')):
-            raise TypeError("Object does not have an export_to_dict method. Not a valid DoclingDocument.")
-            
-        # Create output directory if it doesn't exist
-        output_path = Path(output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
+        output_dir = Path(output_dir)
         
-        # Define output file path
-        output_file = output_path / docling_document.name + ".json"
+        # Get the document name for the output filename
+        doc_name = getattr(docling_document, 'name', 'docling_document')
+        output_file = output_dir / f"{doc_name}.json"
         
-        logger.info(f"Saving DoclingDocument to {output_file}")
-        
-        # Export the docling document to dict and save as JSON
         try:
+            # Get a dictionary representation of the document
+            logger.debug("Exporting DoclingDocument to dict...")
             doc_dict = docling_document.export_to_dict()
-            with open(output_file, "w") as f:
+            
+            # Write the dictionary to a JSON file
+            logger.debug(f"Writing JSON to {output_file}...")
+            with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(doc_dict, f, indent=2)
             
             logger.info(f"DoclingDocument saved successfully to {output_file}")
@@ -310,7 +302,7 @@ def save_output(docling_document, output_dir):
             logger.error(f"Failed to export DoclingDocument: {e}")
             raise TypeError(f"DoclingDocument export_to_dict method failed: {e}")
             
-        except (json.JSONDecodeError, json.JSONEncoder) as e:
+        except json.JSONDecodeError as e:
             logger.error(f"JSON serialization error: {e}")
             raise Exception(f"Failed to serialize DoclingDocument to JSON: {e}")
             

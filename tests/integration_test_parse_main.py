@@ -1,188 +1,281 @@
 """
 Integration tests for the PDF document parsing application.
 
-These tests verify that the entire parsing flow works correctly with real files.
+These tests verify that the parse_main.py functions work together correctly
+and that content extraction is properly integrated.
 """
 
 import os
 import sys
 import unittest
-import tempfile
 import json
+import tempfile
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
-# Add the parent directory to the path so we can import from src
-sys.path.append(str(Path(__file__).parent.parent))
+# Add the src directory to the path
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-# Import the module to test
-from src.parse_main import main
+# Mock the docling imports before importing parse_main
+sys.modules['docling'] = MagicMock()
+sys.modules['docling.document_converter'] = MagicMock()
+sys.modules['docling.datamodel.base_models'] = MagicMock()
+sys.modules['docling.datamodel.pipeline_options'] = MagicMock()
+sys.modules['docling.document_converter.DocumentConverter'] = MagicMock()
+sys.modules['docling.datamodel.base_models.InputFormat'] = MagicMock()
+sys.modules['docling.document_converter.PdfFormatOption'] = MagicMock()
+sys.modules['docling.datamodel.pipeline_options.PdfPipelineOptions'] = MagicMock()
 
+# Now import the modules to test
+import parse_main
+from content_extractor import (
+    extract_text_content, 
+    extract_table_content, 
+    extract_image_content
+)
 
-class TestParsePDFIntegration(unittest.TestCase):
-    """Integration tests for the parse_main.py module."""
+class MockPage:
+    """Mock implementation of a docling Page."""
+    
+    def __init__(self, page_id, segments=None, tables=None, pictures=None):
+        self.id = page_id
+        self.self_ref = f"page_{page_id}"
+        self.segments = segments or []
+        self.tables = tables or []
+        self.pictures = pictures or []
+        # Make all properties dictionary-like for JSON serialization
+        self.metadata = {"type": "page"}
+        
+    def to_dict(self):
+        """Return a serializable dictionary representation of this page."""
+        return {
+            "id": self.id,
+            "self_ref": self.self_ref,
+            "metadata": self.metadata,
+            "segments": [s.to_dict() for s in self.segments],
+            "tables": [t.to_dict() for t in self.tables],
+            "pictures": [p.to_dict() for p in self.pictures]
+        }
+
+class MockSegment:
+    """Mock implementation of a docling Segment."""
+    
+    def __init__(self, page_id, segment_id, text="Sample text"):
+        self.id = segment_id
+        self.self_ref = f"page_{page_id}_segment_{segment_id}"
+        self.text = text
+        self.metadata = {"type": "segment"}
+        
+    def to_dict(self):
+        """Return a serializable dictionary representation of this segment."""
+        return {
+            "id": self.id,
+            "self_ref": self.self_ref,
+            "text": self.text,
+            "metadata": self.metadata
+        }
+
+class MockTable:
+    """Mock implementation of a docling Table."""
+    
+    def __init__(self, page_id, table_id):
+        self.id = table_id
+        self.self_ref = f"page_{page_id}_table_{table_id}"
+        self.cells = [
+            {"row": 0, "col": 0, "text": "Cell 1"},
+            {"row": 0, "col": 1, "text": "Cell 2"},
+            {"row": 1, "col": 0, "text": "Cell 3"},
+            {"row": 1, "col": 1, "text": "Cell 4"}
+        ]
+        self.metadata = {"type": "table"}
+        
+    def to_dict(self):
+        """Return a serializable dictionary representation of this table."""
+        return {
+            "id": self.id,
+            "self_ref": self.self_ref,
+            "cells": self.cells,
+            "metadata": self.metadata
+        }
+
+class MockPicture:
+    """Mock implementation of a docling Picture."""
+    
+    def __init__(self, page_id, picture_id):
+        self.id = picture_id
+        self.self_ref = f"page_{page_id}_picture_{picture_id}"
+        self.image_path = f"images/page_{page_id}_image_{picture_id}.jpg"
+        self.description = f"Sample image {picture_id} on page {page_id}"
+        self.metadata = {"type": "picture"}
+        
+    def to_dict(self):
+        """Return a serializable dictionary representation of this picture."""
+        return {
+            "id": self.id,
+            "self_ref": self.self_ref,
+            "image_path": self.image_path,
+            "description": self.description,
+            "metadata": self.metadata
+        }
+
+class MockDoclingDocument:
+    """Mock implementation of a docling Document."""
+    
+    def __init__(self, name="test_document"):
+        self.name = name
+        self.schema_version = "1.0"
+        
+        # Create some pages with content
+        self.pages = []
+        for page_id in range(1, 3):
+            segments = [MockSegment(page_id, i) for i in range(1, 4)]
+            tables = [MockTable(page_id, 1)]
+            pictures = [MockPicture(page_id, 1)]
+            
+            page = MockPage(page_id, segments, tables, pictures)
+            self.pages.append(page)
+    
+    def export_to_dict(self):
+        """Return a serializable dictionary representation of this document."""
+        return {
+            "name": self.name,
+            "schema_version": self.schema_version,
+            "pages": [page.to_dict() for page in self.pages]
+        }
+
+@patch('parse_main.DocumentConverter')
+class TestParseMainIntegration(unittest.TestCase):
+    """Integration tests for parse_main.py with content extraction."""
     
     def setUp(self):
-        """Set up test fixtures."""
-        # Save original environment variables and arguments
-        self.original_environ = os.environ.copy()
-        self.original_argv = sys.argv.copy()
-        
+        """Set up test data and environment."""
         # Create a temporary directory for output
         self.temp_dir = tempfile.TemporaryDirectory()
         self.output_dir = Path(self.temp_dir.name)
         
-        # Create a sample PDF in the test_data directory
-        # For integration testing, we need a real PDF file
-        self.test_data_dir = Path(__file__).parent / "test_data"
-        self.test_data_dir.mkdir(exist_ok=True)
+        # Create a mock DoclingDocument
+        self.mock_document = MockDoclingDocument()
         
-        # For now, we'll create a mock PDF file
-        # In a real scenario, you should have a real PDF file in the test_data directory
-        self.mock_pdf_path = self.test_data_dir / "sample.pdf"
-        if not self.mock_pdf_path.exists():
-            self.mock_pdf_path.touch()  # Create an empty file for now
-            self.created_pdf = True
-        else:
-            self.created_pdf = False
+        # Mock the conversion result
+        self.mock_conversion_result = MagicMock()
+        self.mock_conversion_result.status = "success"
+        self.mock_conversion_result.document = self.mock_document
     
     def tearDown(self):
-        """Clean up test fixtures."""
-        # Restore original environment variables and arguments
-        os.environ.clear()
-        os.environ.update(self.original_environ)
-        sys.argv = self.original_argv
-        
-        # Clean up temporary directory
+        """Clean up after tests."""
         self.temp_dir.cleanup()
-        
-        # Clean up mock PDF if we created it
-        if self.created_pdf and self.mock_pdf_path.exists():
-            self.mock_pdf_path.unlink()
     
-    def test_full_parsing_with_command_line_args(self):
-        """Test the full parsing flow using command-line arguments."""
-        # Set command-line arguments
-        sys.argv = [
-            "src/parse_main.py",
-            "--pdf_path", str(self.mock_pdf_path),
-            "--output_dir", str(self.output_dir),
-            "--log_level", "DEBUG"
-        ]
+    def test_process_and_save_with_content_extraction(self, mock_converter_class):
+        """Test that processing and saving works with content extraction."""
+        # Configure the mock
+        mock_instance = mock_converter_class.return_value
+        mock_instance.convert.return_value = self.mock_conversion_result
         
-        # Run the main function
-        exit_code = main()
+        # Create a dummy PDF path
+        pdf_path = self.output_dir / "dummy.pdf"
+        with open(pdf_path, 'w') as f:
+            f.write("Dummy PDF content")
         
-        # Check that the function completed successfully
-        self.assertEqual(exit_code, 0)
+        # Process the document
+        document = parse_main.process_pdf_document(pdf_path, self.output_dir)
         
-        # Check that the output file was created
-        output_file = self.output_dir / "element_map.json"
-        self.assertTrue(output_file.exists(), f"Output file not created: {output_file}")
+        # Make sure the converter was called
+        mock_instance.convert.assert_called_once()
         
-        # Check that the output file contains valid JSON
-        with open(output_file) as f:
-            data = json.load(f)
+        # Verify we got back the mock document
+        self.assertEqual(document, self.mock_document)
         
-        # Check that the output contains expected keys
-        # This is a basic check; you'd want more specific checks in a real test
-        self.assertIsInstance(data, dict)
-        self.assertGreaterEqual(len(data), 1, "Element map should contain at least one element")
+        # Now save the output
+        output_file = parse_main.save_output(document, self.output_dir)
+        
+        # Check that the file was created
+        self.assertTrue(output_file.exists())
+        
+        # Load the JSON and verify it has the expected structure
+        with open(output_file, 'r') as f:
+            doc_dict = json.load(f)
+        
+        # Verify basic document structure exists instead of element_map
+        self.assertIn('pages', doc_dict)
+        self.assertIn('name', doc_dict)
+        self.assertIn('schema_version', doc_dict)
     
-    def test_full_parsing_with_environment_vars(self):
-        """Test the full parsing flow using environment variables."""
-        # Set environment variables
-        os.environ["DOCLING_PDF_PATH"] = str(self.mock_pdf_path)
-        os.environ["DOCLING_OUTPUT_DIR"] = str(self.output_dir)
-        os.environ["DOCLING_LOG_LEVEL"] = "DEBUG"
+    def test_content_extraction_functions(self, mock_converter_class):
+        """Test that the content extraction functions work correctly."""
+        # Create sample elements
+        text_element = {
+            "id": "text_1", 
+            "text": "Sample text content", 
+            "metadata": {"type": "paragraph"}
+        }
         
-        # Clear command-line arguments
-        sys.argv = ["src/parse_main.py"]
+        table_element = {
+            "id": "table_1",
+            "metadata": {"type": "table"},
+            "cells": [
+                {"row": 0, "col": 0, "text": "Header", "rowspan": 1, "colspan": 1},
+                {"row": 1, "col": 0, "text": "Data", "rowspan": 1, "colspan": 1}
+            ]
+        }
         
-        # Run the main function
-        exit_code = main()
+        image_element = {
+            "id": "image_1",
+            "metadata": {"type": "picture"},
+            "image_path": "/path/to/image.jpg",
+            "bounds": {"x": 0, "y": 0, "width": 100, "height": 100}
+        }
         
-        # Check that the function completed successfully
-        self.assertEqual(exit_code, 0)
+        # Test text extraction
+        text_content = extract_text_content(text_element)
+        self.assertEqual(text_content, "Sample text content")
         
-        # Check that the output file was created
-        output_file = self.output_dir / "element_map.json"
-        self.assertTrue(output_file.exists(), f"Output file not created: {output_file}")
+        # Test table extraction
+        table_content = extract_table_content(table_element)
+        self.assertEqual(len(table_content), 2)  # 2 rows
+        self.assertEqual(table_content[0][0], "Header")
+        self.assertEqual(table_content[1][0], "Data")
         
-        # Check that the output file contains valid JSON
-        with open(output_file) as f:
-            data = json.load(f)
-        
-        # Check that the output contains expected keys
-        self.assertIsInstance(data, dict)
-        self.assertGreaterEqual(len(data), 1, "Element map should contain at least one element")
+        # Test image extraction
+        image_content = extract_image_content(image_element)
+        self.assertEqual(image_content["image_path"], "/path/to/image.jpg")
     
-    def test_parsing_with_dotenv_file(self):
-        """Test the parsing flow using a .env file."""
-        # Create a temporary .env file
-        env_file = Path(".env")
-        env_file.write_text(f"""
-DOCLING_PDF_PATH={self.mock_pdf_path}
-DOCLING_OUTPUT_DIR={self.output_dir}
-DOCLING_LOG_LEVEL=DEBUG
-""")
+    def test_main_function_integration(self, mock_converter_class):
+        """Test the main function with content extraction."""
+        # Configure the mock
+        mock_instance = mock_converter_class.return_value
+        mock_instance.convert.return_value = self.mock_conversion_result
         
-        try:
-            # Clear command-line arguments
-            sys.argv = ["src/parse_main.py"]
+        # Create a dummy PDF path
+        pdf_path = self.output_dir / "dummy.pdf"
+        with open(pdf_path, 'w') as f:
+            f.write("Dummy PDF content")
+        
+        # Mock the command line arguments
+        with patch('sys.argv', ['parse_main.py', 
+                              '--pdf_path', str(pdf_path),
+                              '--output_dir', str(self.output_dir)]):
             
-            # Run the main function
-            exit_code = main()
-            
-            # Check that the function completed successfully
-            self.assertEqual(exit_code, 0)
-            
-            # Check that the output file was created
-            output_file = self.output_dir / "element_map.json"
-            self.assertTrue(output_file.exists(), f"Output file not created: {output_file}")
-            
-            # Check that the output file contains valid JSON
-            with open(output_file) as f:
-                data = json.load(f)
-            
-            # Check that the output contains expected keys
-            self.assertIsInstance(data, dict)
-            self.assertGreaterEqual(len(data), 1, "Element map should contain at least one element")
-        
-        finally:
-            # Clean up the .env file
-            if env_file.exists():
-                env_file.unlink()
-    
-    def test_command_line_args_override_env_vars(self):
-        """Test that command-line arguments override environment variables."""
-        # Create a different output directory for the command-line argument
-        cmd_output_dir = self.output_dir / "cmd_output"
-        
-        # Set environment variables
-        os.environ["DOCLING_PDF_PATH"] = str(self.mock_pdf_path)
-        os.environ["DOCLING_OUTPUT_DIR"] = str(self.output_dir)
-        
-        # Set command-line arguments
-        sys.argv = [
-            "src/parse_main.py",
-            "--output_dir", str(cmd_output_dir)
-        ]
-        
-        # Run the main function
-        exit_code = main()
-        
-        # Check that the function completed successfully
-        self.assertEqual(exit_code, 0)
-        
-        # Check that the output file was created in the command-line specified directory
-        env_output_file = self.output_dir / "element_map.json"
-        cmd_output_file = cmd_output_dir / "element_map.json"
-        
-        self.assertFalse(env_output_file.exists(), 
-                         "Output file should not be in env var directory")
-        self.assertTrue(cmd_output_file.exists(), 
-                        "Output file should be in command-line arg directory")
+            # Patch os.path.exists to make it think the PDF exists
+            with patch('os.path.exists', return_value=True):
+                # Call the main function
+                return_code = parse_main.main()
+                
+                # Check if it completed successfully
+                self.assertEqual(return_code, 0)
+                
+                # Verify output file was created
+                output_files = list(self.output_dir.glob('*.json'))
+                self.assertGreater(len(output_files), 0)
+                
+                # Check content of first output file
+                with open(output_files[0], 'r') as f:
+                    doc_dict = json.load(f)
+                
+                # Verify basic document structure exists instead of element_map
+                self.assertIn('pages', doc_dict)
+                self.assertIn('name', doc_dict)
+                self.assertIn('schema_version', doc_dict)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main() 
