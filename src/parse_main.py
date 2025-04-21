@@ -41,7 +41,7 @@ except ImportError as e:
 
 # Import the element map builder
 try:
-    from src.element_map_builder import build_element_map
+    from element_map_builder import build_element_map
 except ImportError as e:
     logging.error(f"Error importing element_map_builder: {e}")
     sys.exit(1)
@@ -217,6 +217,10 @@ def process_pdf_document(pdf_path, output_dir, config_file=None):
         pipeline_options.images_scale = 2.0  # Adjust image resolution if needed
         pipeline_options.generate_page_images = True  # Generate images for pages
         pipeline_options.generate_picture_images = True  # Generate images for pictures
+        pipeline_options.allow_external_plugins = True
+        pipeline_options.do_picture_description = True
+        pipeline_options.do_table_structure = True
+        pipeline_options.generate_picture_images = True
         
         # Enable external plugins if a config file is provided
         if config_file and Path(config_file).exists():
