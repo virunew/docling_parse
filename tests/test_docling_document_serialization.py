@@ -16,7 +16,7 @@ from unittest.mock import patch, MagicMock
 # Add the parent directory to the Python path to enable imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.parse_main import save_output
+from save_output import save_output
 
 
 class MockDoclingDocument:

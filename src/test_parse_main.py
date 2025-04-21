@@ -15,12 +15,12 @@ import logging
 # Add the parent directory to the path so we can import the module
 sys.path.append(str(Path(__file__).parent.parent))
 
+from save_output import save_output
 from src.parse_main import (
     Configuration,
     parse_arguments,
     setup_logging,
     process_pdf_document,
-    save_output,
     main
 )
 

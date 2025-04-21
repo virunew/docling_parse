@@ -13,6 +13,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+import save_output
+
 # Add the src directory to the path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
@@ -186,7 +188,7 @@ class TestParseMainIntegration(unittest.TestCase):
         self.assertEqual(document, self.mock_document)
         
         # Now save the output
-        output_file = parse_main.save_output(document, self.output_dir)
+        output_file = save_output.save_output(document, self.output_dir)
         
         # Check that the file was created
         self.assertTrue(output_file.exists())

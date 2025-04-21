@@ -1,6 +1,7 @@
 # Core dependencies
-docling>=1.0.0  # PDF document processing library
-python-dotenv>=1.0.0  # For loading environment variables from .env file
+python-dotenv>=0.19.2
 
 # Testing dependencies
-pytest>=7.0.0  # For running tests 
+pytest>=7.0.0
+reportlab>=4.0.0
+Pillow>=9.0.0 

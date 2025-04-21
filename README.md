@@ -1,129 +1,94 @@
-# docling_parse
+# Docling PDF Parser
 
-A Python library for parsing PDF documents using the Docling library and generating a standardized DoclingDocument JSON representation.
+A PDF document parser that extracts structured content from PDF files using the docling library.
 
-## Overview
+## Features
 
-This library provides functionality to:
-
-1. Process PDF documents using the Docling library
-2. Extract structured content (text, images, tables, etc.)
-3. Generate a standardized DoclingDocument JSON representation 
-4. Save the output for further processing or analysis
-
-The DoclingDocument JSON format provides a consistent representation of document content that can be easily consumed by other applications.
+- Extracts text and structure from PDF documents
+- Extracts images from PDF documents with metadata
+- Builds a complete element map of document components
+- Analyzes relationships between images and surrounding text
+- Saves the document structure and images as JSON
 
 ## Installation
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/docling_parse.git
-cd docling_parse
+1. Clone the repository:
+   ```
+   git clone https://github.com/yourusername/docling_parse.git
+   cd docling_parse
+   ```
 
-# Install dependencies
-pip install -r requirements.txt
-```
+2. Install the required dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
+
+3. Make sure the docling library is installed (follow docling installation instructions).
 
 ## Usage
 
-### Command-line Interface
-
-The simplest way to use the library is through its command-line interface:
+### Command Line Interface
 
 ```bash
-python src/parse_main.py --pdf_path=your_document.pdf --output_dir=output
+python src/parse_main.py --pdf <path_to_pdf> --output <output_directory> --log-level INFO
 ```
 
 Options:
-- `--pdf_path, -p`: Path to the input PDF file (required)
-- `--output_dir, -o`: Directory for output files (default: 'output')
-- `--log_level, -l`: Logging verbosity level (DEBUG, INFO, WARNING, ERROR)
-- `--config_file, -c`: Path to additional configuration file
+- `--pdf <path>`: Path to the PDF document to process
+- `--output <directory>`: Directory to save output files
+- `--log-level <level>`: Log level (DEBUG, INFO, WARNING, ERROR)
+- `--config <file>`: Optional path to a configuration file
 
 ### Environment Variables
 
-You can also set configuration through environment variables in a `.env` file:
+You can also set options using environment variables:
+- `DOCLING_PDF_PATH`: Path to input PDF file
+- `DOCLING_OUTPUT_DIR`: Directory for output files
+- `DOCLING_LOG_LEVEL`: Logging verbosity (DEBUG, INFO, WARNING, ERROR)
+- `DOCLING_CONFIG_FILE`: Optional path to a configuration file
 
-```
-DOCLING_PDF_PATH=/path/to/your/document.pdf
-DOCLING_OUTPUT_DIR=output
-DOCLING_LOG_LEVEL=INFO
-DOCLING_CONFIG_FILE=/path/to/config.json
-```
+### Output
 
-### Python API
+The parser generates the following output:
+1. A JSON file containing the document structure
+2. Extracted images saved in an `images` directory
+3. An `images_data.json` file with metadata about the extracted images
 
-```python
-from src.parse_main import process_pdf_document, save_output
+## PDF Image Extraction
 
-# Process a PDF document
-docling_document = process_pdf_document(
-    "your_document.pdf", 
-    "output_directory",
-    config_file="optional_config.json"
-)
+The `pdf_image_extractor.py` module provides functionality to extract images from PDF documents. It is integrated with the main parsing flow to automatically extract and process images.
 
-# Save the document as JSON
-output_file = save_output(docling_document, "output_directory")
-print(f"Document saved to: {output_file}")
-```
+### Features
 
-## DoclingDocument JSON Format
+- Extracts embedded images from PDF documents
+- Captures image metadata (size, format, page number, position)
+- Analyzes relationships with surrounding text content
+- Supports various image formats (PNG, JPEG, etc.)
+- Handles multi-page documents
 
-The output is saved as a JSON file called `element_map.json` in the specified output directory. The JSON follows the DoclingDocument schema with the following structure:
+### Integration
 
-```json
-{
-  "schema_name": "DoclingDocument",
-  "version": "1.3.0",
-  "name": "document_name",
-  "origin": {
-    "mimetype": "application/pdf",
-    "binary_hash": 1234567890,
-    "filename": "original_file.pdf"
-  },
-  "body": {
-    "self_ref": "#/body",
-    "children": [...],
-    "content_layer": "body",
-    "name": "_root_",
-    "label": "unspecified"
-  },
-  "furniture": {
-    "self_ref": "#/furniture",
-    "children": [...],
-    "content_layer": "furniture",
-    "name": "_root_",
-    "label": "unspecified"
-  },
-  "texts": [...],
-  "groups": [...],
-  "pages": [...]
-}
-```
+The PDF image extractor is integrated into the main parsing flow as follows:
 
-Key elements include:
-- `body`: Main content of the document
-- `furniture`: Headers, footers, and other page decorations
-- `texts`: Text elements with content and attributes
-- `groups`: Groupings of related elements
+1. `parse_main.py` calls `process_pdf_document()` to process the PDF
+2. Within `process_pdf_document()`, an instance of `PDFImageExtractor` is created
+3. `extract_images()` is called to extract images from the PDF
+4. Extracted images are saved to the `images` directory
+5. Image metadata and relationships are saved to `images_data.json`
+6. `save_output()` integrates image data into the final JSON output
 
 ## Testing
 
-Run unit tests with:
+Run the tests with:
 
 ```bash
-# Run all tests
 python -m unittest discover tests
-
-# Run specific tests
-python -m unittest tests/test_docling_document_serialization.py
 ```
 
-For a quick test of the DoclingDocument serialization on a real PDF:
+You can also run individual test modules:
 
 ```bash
-python tests/run_parse_test.py path/to/document.pdf
+python tests/test_with_mocks.py
 ```
 
 ## License

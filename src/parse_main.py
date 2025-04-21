@@ -13,8 +13,11 @@ Environment variables can be set in a .env file:
 - DOCLING_LOG_LEVEL: Logging verbosity (DEBUG, INFO, WARNING, ERROR)
 - DOCLING_CONFIG_FILE: Optional path to a configuration file
 """
+# Load environment variables first
 from dotenv import load_dotenv
 load_dotenv()
+
+# Standard library imports
 import argparse
 import json
 import logging
@@ -23,6 +26,12 @@ import sys
 import time
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
+
+# Import the logger configuration
+from logger_config import logger, setup_logging
+
+# Import the helper functions
+from parse_helper import process_pdf_document, save_output
 
 # Import docling library components
 try:
@@ -47,16 +56,11 @@ try:
         find_sibling_text_in_sequence, 
         get_captions
     )
+    # Import the PDFImageExtractor class
+    from pdf_image_extractor import PDFImageExtractor, ImageContentRelationship
 except ImportError as e:
     logging.error(f"Error importing local modules: {e}")
     sys.exit(1)
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger("docling_parser")
 
 
 class Configuration:
@@ -170,151 +174,6 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def setup_logging(log_level):
-    """Set up logging with the specified verbosity level."""
-    # Convert string log level to numeric value
-    numeric_level = getattr(logging, log_level.upper(), None)
-    
-    if not isinstance(numeric_level, int):
-        raise ValueError(f"Invalid log level: {log_level}")
-    
-    # Configure root logger
-    logging.getLogger().setLevel(numeric_level)
-    
-    # Configure our module logger
-    logger.setLevel(numeric_level)
-    
-    # Add file handler if we want to log to file as well
-    log_file = Path("logs") / "docling_parser.log"
-    log_file.parent.mkdir(exist_ok=True)
-    
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(numeric_level)
-    file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-    
-    logger.addHandler(file_handler)
-    
-    logger.debug(f"Logging configured at level {log_level}")
-
-
-def process_pdf_document(pdf_path, output_dir, config_file=None):
-    """
-    Process a PDF document and extract its content.
-    
-    Args:
-        pdf_path: Path to the PDF document
-        output_dir: Directory to save output files
-        config_file: Path to the configuration file (optional)
-    
-    Returns:
-        DoclingDocument: The converted document object
-    """
-    logger = logging.getLogger(__name__)
-    logger.info(f"Processing PDF document: {pdf_path}")
-    
-    # Create output directory if it doesn't exist
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-    
-    try:
-        # Set up pipeline options
-        pipeline_options = PdfPipelineOptions()
-        pipeline_options.images_scale = 2.0  # Adjust image resolution if needed
-        pipeline_options.generate_page_images = True  # Generate images for pages
-        pipeline_options.generate_picture_images = True  # Generate images for pictures
-        pipeline_options.allow_external_plugins = True
-        pipeline_options.do_picture_description = True
-        pipeline_options.do_table_structure = True
-        pipeline_options.generate_picture_images = True
-        
-        # Enable external plugins if a config file is provided
-        if config_file and Path(config_file).exists():
-            pipeline_options.allow_external_plugins = True
-            logger.info(f"Using configuration file: {config_file}")
-            # Load environment variables for docling configuration
-            os.environ["DOCLING_CONFIG_FILE"] = str(Path(config_file).absolute())
-        
-        # Create a DocumentConverter instance
-        doc_converter = DocumentConverter(
-            format_options={
-                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
-            }
-        )
-        
-        # Convert the PDF document
-        logger.debug(f"Starting document conversion")
-        conversion_result = doc_converter.convert(Path(pdf_path))
-        
-        if conversion_result.status != "success":
-            logger.error(f"Document conversion failed: {conversion_result.status}")
-            raise Exception(f"Document conversion failed: {conversion_result.status}")
-            
-        docling_document = conversion_result.document
-        logger.info(f"Document successfully converted: {len(docling_document.pages)} pages found")
-        
-        # Return the DoclingDocument directly
-        return docling_document
-        
-    except Exception as e:
-        logger.exception(f"Error processing PDF document: {e}")
-        raise
-
-
-def save_output(docling_document, output_dir):
-    """
-    Save the DoclingDocument as a JSON file
-    
-    Args:
-        docling_document (DoclingDocument): The document to save
-        output_dir (str or Path): Directory where to save the output
-        
-    Returns:
-        Path: Path to the saved output file
-        
-    Raises:
-        IOError: If the output directory is not writable
-        TypeError: If the document cannot be exported to dict
-        Exception: For other errors
-    """
-    logger.info(f"Saving DoclingDocument to {output_dir}")
-    
-    try:
-        output_dir = Path(output_dir)
-        
-        # Get the document name for the output filename
-        doc_name = getattr(docling_document, 'name', 'docling_document')
-        output_file = output_dir / f"{doc_name}.json"
-        
-        try:
-            # Get a dictionary representation of the document
-            logger.debug("Exporting DoclingDocument to dict...")
-            doc_dict = docling_document.export_to_dict()
-            
-            # Write the dictionary to a JSON file
-            logger.debug(f"Writing JSON to {output_file}...")
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(doc_dict, f, indent=2)
-            
-            logger.info(f"DoclingDocument saved successfully to {output_file}")
-            return output_file
-            
-        except AttributeError as e:
-            logger.error(f"Failed to export DoclingDocument: {e}")
-            raise TypeError(f"DoclingDocument export_to_dict method failed: {e}")
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON serialization error: {e}")
-            raise Exception(f"Failed to serialize DoclingDocument to JSON: {e}")
-            
-    except IOError as e:
-        logger.error(f"Failed to write output file: {e}")
-        raise IOError(f"Could not write to {output_dir}: {e}")
-        
-    except Exception as e:
-        logger.error(f"Unexpected error in save_output: {e}")
-        raise
-
-
 def main():
     """
     Main function - entry point for the application
@@ -344,11 +203,12 @@ def main():
             return 1
         
         # Set up logging
-        setup_logging(config.log_level)
+        global logger
+        logger = setup_logging(config.log_level)
         
-        logging.info(f"Starting PDF document processing")
-        logging.info(f"PDF path: {config.pdf_path}")
-        logging.info(f"Output directory: {config.output_dir}")
+        logger.info(f"Starting PDF document processing")
+        logger.info(f"PDF path: {config.pdf_path}")
+        logger.info(f"Output directory: {config.output_dir}")
         
         # Create output directory if it doesn't exist
         output_dir_path = Path(config.output_dir)
@@ -360,12 +220,12 @@ def main():
         # Save the output as JSON
         output_file = save_output(docling_document, config.output_dir)
         
-        logging.info(f"Document processing completed successfully")
-        logging.info(f"Output saved to: {output_file}")
+        logger.info(f"Document processing completed successfully")
+        logger.info(f"Output saved to: {output_file}")
         
         return 0
     except Exception as e:
-        logging.error(f"An error occurred during document processing: {e}", exc_info=True)
+        logger.error(f"An error occurred during document processing: {e}", exc_info=True)
         return 1
 
 

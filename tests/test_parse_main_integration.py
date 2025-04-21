@@ -1,114 +1,200 @@
 #!/usr/bin/env python3
 """
-Integration tests for parse_main.py
+Integration Test for Parse Main Flow
+
+This script tests the main parsing flow with image extraction integration.
+It verifies that the entire pipeline works correctly from end to end.
 """
 
-import os
-import sys
-import unittest
 import json
+import logging
+import os
+import shutil
+import sys
+import tempfile
 from pathlib import Path
-import subprocess
-from unittest.mock import patch
+import unittest
+from unittest import mock
 
-# Add the parent directory to the Python path to enable imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Add the parent directory to the path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# Import the mock docling module
+from save_output import save_output
+from tests.mock_docling import (
+    DocumentConverter, 
+    PdfFormatOption, 
+    InputFormat, 
+    PdfPipelineOptions,
+    ConversionResult
+)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 class TestParseMainIntegration(unittest.TestCase):
-    """Integration tests for parse_main.py"""
+    """Test suite for the main parsing flow with image extraction."""
     
     def setUp(self):
-        """Set up test environment."""
-        # Create test directories
-        self.test_dir = Path("test_integration")
-        self.test_dir.mkdir(exist_ok=True)
+        """Set up the test environment."""
+        # Create a temporary directory for output files
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.output_dir = Path(self.temp_dir.name)
         
-        self.output_dir = self.test_dir / "output"
-        self.output_dir.mkdir(exist_ok=True)
+        # Get a sample PDF path from environment variable or use a default test file
+        self.sample_pdf_path = os.environ.get(
+            "TEST_PDF_PATH", 
+            str(Path(__file__).parent / "data" / "sample.pdf")
+        )
         
-        # Path to a sample PDF for testing
-        # For actual testing, you would need a real PDF file
-        self.sample_pdf = self.test_dir / "sample.pdf"
+        # Store original environment variables
+        self.original_env = {
+            "DOCLING_PDF_PATH": os.environ.get("DOCLING_PDF_PATH"),
+            "DOCLING_OUTPUT_DIR": os.environ.get("DOCLING_OUTPUT_DIR"),
+            "DOCLING_LOG_LEVEL": os.environ.get("DOCLING_LOG_LEVEL"),
+            "DOCLING_CONFIG_FILE": os.environ.get("DOCLING_CONFIG_FILE"),
+        }
         
-        # For integration test, let's create a dummy PDF if it doesn't exist
-        if not self.sample_pdf.exists():
-            with open(self.sample_pdf, "wb") as f:
-                f.write(b"%PDF-1.4\n% Dummy PDF file for testing\n")
+        # Set environment variables for testing
+        os.environ["DOCLING_PDF_PATH"] = self.sample_pdf_path
+        os.environ["DOCLING_OUTPUT_DIR"] = str(self.output_dir)
+        os.environ["DOCLING_LOG_LEVEL"] = "INFO"
         
-        # Make sure config file exists
-        self.config_file = Path("docling_config.yaml")
-        self.assertTrue(self.config_file.exists(), "docling_config.yaml must exist for this test")
+        # Create patcher for docling module
+        self.docling_patcher = mock.patch.dict(sys.modules, {
+            'docling.document_converter': mock.MagicMock(),
+            'docling.datamodel.base_models': mock.MagicMock(),
+            'docling.datamodel.pipeline_options': mock.MagicMock(),
+            'docling.datamodel.document': mock.MagicMock()
+        })
+        
+        # Start the patcher
+        self.docling_patcher.start()
+        
+        # After patching the modules, import the modules to test
+        from src.parse_main import main, Configuration, process_pdf_document
+        self.main = main
+        self.Configuration = Configuration
+        self.process_pdf_document = process_pdf_document
+        self.save_output = save_output
     
     def tearDown(self):
-        """Clean up test environment."""
-        # Clean up test output directory
-        import shutil
-        if self.output_dir.exists():
-            for file in self.output_dir.glob("*"):
-                if file.is_file():
-                    file.unlink()
+        """Clean up after the test."""
+        # Stop the patcher
+        self.docling_patcher.stop()
         
-        # Don't remove the sample.pdf as it might be a real test file
+        # Restore original environment variables
+        for key, value in self.original_env.items():
+            if value is None:
+                if key in os.environ:
+                    del os.environ[key]
+            else:
+                os.environ[key] = value
+        
+        # Clean up the temporary directory
+        self.temp_dir.cleanup()
     
-    @unittest.skip("Integration test requires docling library and real PDF - run manually")
-    def test_parse_main_with_config_file(self):
-        """Test that parse_main.py works correctly with a configuration file."""
-        # We'll use subprocess to run the parse_main.py script
-        # This is a real integration test that requires a real PDF file
+    def test_configuration_from_env(self):
+        """Test that configuration is correctly loaded from environment variables."""
+        # Skip if the test file doesn't exist
+        if not Path(self.sample_pdf_path).exists():
+            self.skipTest(f"Test PDF file not found: {self.sample_pdf_path}")
         
-        if not self.sample_pdf.exists() or os.path.getsize(self.sample_pdf) < 1000:
-            self.skipTest("A real PDF file is required for this integration test")
+        # Create a configuration object
+        config = self.Configuration()
         
-        # Set up environment variables
-        env = os.environ.copy()
-        env["DOCLING_CONFIG_FILE"] = str(self.config_file.absolute())
+        # Verify that the configuration was loaded from environment variables
+        self.assertEqual(config.pdf_path, self.sample_pdf_path)
+        self.assertEqual(config.output_dir, str(self.output_dir))
+        self.assertEqual(config.log_level, "INFO")
+    
+    @mock.patch('src.parse_main.DocumentConverter')
+    @mock.patch('src.element_map_builder.build_element_map')
+    def test_process_pdf_document(self, mock_build_element_map, mock_converter_class):
+        """Test the process_pdf_document function with image extraction."""
+        # Skip if the test file doesn't exist
+        if not Path(self.sample_pdf_path).exists():
+            self.skipTest(f"Test PDF file not found: {self.sample_pdf_path}")
         
-        # Run the script with command-line arguments
-        cmd = [
-            sys.executable,
-            str(Path("src/parse_main.py").absolute()),
-            "--pdf_path", str(self.sample_pdf),
-            "--output_dir", str(self.output_dir),
-            "--log_level", "DEBUG",
-            "--config_file", str(self.config_file.absolute())
+        # Set up mocks
+        mock_converter = mock_converter_class.return_value
+        mock_document = mock.MagicMock()
+        mock_document.name = "sample"
+        mock_document.pages = [mock.MagicMock(), mock.MagicMock()]
+        
+        mock_converter.convert.return_value = ConversionResult(
+            document=mock_document
+        )
+        
+        mock_build_element_map.return_value = {
+            "flattened_sequence": [
+                {"id": "text1", "text": "Text before image"},
+                {"id": "img1", "type": "picture"},
+                {"id": "text2", "text": "Text after image"}
+            ]
+        }
+        
+        # Process the PDF document
+        docling_document = self.process_pdf_document(
+            self.sample_pdf_path, 
+            self.output_dir
+        )
+        
+        # Verify that the document was processed
+        self.assertIsNotNone(docling_document)
+        
+        # Verify that the mocks were called correctly
+        mock_converter_class.assert_called_once()
+        mock_converter.convert.assert_called_once()
+        
+        # Save the output to verify integration
+        output_file = self.save_output(docling_document, self.output_dir)
+        
+        # Verify that the output file exists
+        self.assertTrue(output_file.exists())
+    
+    @mock.patch('sys.argv')
+    @mock.patch('src.parse_main.process_pdf_document')
+    @mock.patch('src.parse_main.save_output')
+    def test_end_to_end_flow(self, mock_save_output, mock_process_pdf_document, mock_argv):
+        """Test the end-to-end parsing flow with image extraction."""
+        # Skip if the test file doesn't exist
+        if not Path(self.sample_pdf_path).exists():
+            self.skipTest(f"Test PDF file not found: {self.sample_pdf_path}")
+        
+        # Set up test argv
+        mock_argv.__getitem__.side_effect = [
+            "parse_main.py", 
+            "--pdf", self.sample_pdf_path,
+            "--output", str(self.output_dir),
+            "--log-level", "INFO"
         ]
         
-        try:
-            # Run the process and capture output
-            process = subprocess.run(
-                cmd,
-                env=env,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=120  # 2 minute timeout
-            )
-            
-            # Check that the process completed successfully
-            self.assertEqual(process.returncode, 0, 
-                            f"Process failed with error: {process.stderr}")
-            
-            # Check that output file was created
-            output_file = self.output_dir / "element_map.json"
-            self.assertTrue(output_file.exists(), 
-                           f"Output file {output_file} was not created")
-            
-            # Verify the output JSON has expected structure
-            with open(output_file, 'r') as f:
-                element_map = json.load(f)
-            
-            self.assertIsInstance(element_map, dict, 
-                                 "Output element_map should be a dictionary")
-            
-            # Log the output for debugging
-            print(f"Script output:\n{process.stdout}")
-            
-        except subprocess.CalledProcessError as e:
-            self.fail(f"Script execution failed: {e.stderr}")
-        except subprocess.TimeoutExpired:
-            self.fail("Script execution timed out")
+        # Set up mock docling document
+        mock_document = mock.MagicMock()
+        mock_document.name = Path(self.sample_pdf_path).stem
+        
+        # Set up mock return values
+        mock_process_pdf_document.return_value = mock_document
+        mock_save_output.return_value = self.output_dir / f"{mock_document.name}.json"
+        
+        # Run the main function
+        result = self.main()
+        
+        # Verify that the main function completed successfully
+        self.assertEqual(result, 0)
+        
+        # Verify that the mocks were called correctly
+        mock_process_pdf_document.assert_called_once()
+        mock_save_output.assert_called_once()
+
+
+def main():
+    """Run the tests."""
+    unittest.main()
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    main() 

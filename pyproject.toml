@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "docling_parse"
+version = "0.1.0"
+authors = [
+  { name="Tech9", email="tech9@example.com" },
+]
+description = "A PDF document processing tool"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "docling",
+    "pytest",
+    "pyyaml"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/tech9/docling_parse"
+"Bug Tracker" = "https://github.com/tech9/docling_parse/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.hatch.build]
+packages = ["src"] 
