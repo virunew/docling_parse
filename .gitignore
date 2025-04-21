@@ -40,5 +40,5 @@ node_modules/
 tasks.json
 tasks/ 
 
-output*/**
+*output*/**
 scratch/**

@@ -245,6 +245,37 @@ class PDFImageExtractor:
                 except Exception as e:
                     logger.warning(f"Failed to decode data URI: {e}")
             
+            # Try using get_image() method from PictureItem if still no image data
+            if not image_data and hasattr(picture, 'get_image') and callable(picture.get_image):
+                try:
+                    # The get_image method requires the document as argument
+                    pil_image = picture.get_image(document)
+                    if pil_image:
+                        # Convert PIL Image to bytes
+                        img_format = self._determine_image_format(picture).split('/')[-1].upper() or 'PNG'
+                        with io.BytesIO() as output:
+                            pil_image.save(output, format=img_format)
+                            image_data = output.getvalue()
+                            data_source = "get_image_method"
+                            logger.debug(f"Generated image data using get_image() method ({len(image_data)} bytes)")
+                except Exception as e:
+                    logger.warning(f"Failed to get image using get_image() method: {e}")
+                    
+            # Try accessing image attribute directly
+            if not image_data and hasattr(picture, 'image'):
+                try:
+                    image = picture.image
+                    if hasattr(image, '_pil') and image._pil:
+                        # Convert PIL Image to bytes
+                        img_format = self._determine_image_format(picture).split('/')[-1].upper() or 'PNG'
+                        with io.BytesIO() as output:
+                            image._pil.save(output, format=img_format)
+                            image_data = output.getvalue()
+                            data_source = "image._pil"
+                            logger.debug(f"Generated image data from image._pil attribute ({len(image_data)} bytes)")
+                except Exception as e:
+                    logger.warning(f"Failed to extract data from image attribute: {e}")
+            
             # Convert image data to base64 if available
             if image_data:
                 metadata["data_source"] = data_source
@@ -304,7 +335,25 @@ class PDFImageExtractor:
         if hasattr(picture, 'image_path') and picture.image_path:
             ext = os.path.splitext(picture.image_path)[1].lower()
             return mimetypes.guess_type(f"image{ext}")[0]
+        
+        # Try to get from image._format if available
+        if hasattr(picture, 'image') and hasattr(picture.image, '_format'):
+            format_str = picture.image._format.lower()
+            if format_str == 'jpeg':
+                return 'image/jpeg'
+            elif format_str == 'jpg':
+                return 'image/jpeg'
+            elif format_str:
+                return f'image/{format_str}'
             
+        # Check if picture has a format or extension attribute
+        if hasattr(picture, 'format'):
+            format_str = picture.format.lower() if picture.format else None
+            if format_str:
+                if not format_str.startswith('image/'):
+                    format_str = f'image/{format_str}'
+                return format_str
+                
         # Default to PNG if unknown
         return "image/png"
         
@@ -370,6 +419,9 @@ class ImageContentRelationship:
         if not images_data or not images_data.get("images"):
             return images_data
             
+        # Create relationships structure
+        images_data["relationships"] = {}
+            
         # Process each image
         for image in images_data["images"]:
             image_id = image["metadata"]["id"]
@@ -377,6 +429,17 @@ class ImageContentRelationship:
             
             # Find references to this image in the document
             references = self._find_image_references(docling_ref)
+            
+            # Make sure references are JSON serializable
+            json_safe_references = []
+            for ref in references:
+                # Create safe copy without complex objects
+                safe_ref = {
+                    "id": ref.get("id", ""),
+                    "text": ref.get("text", ""),
+                    "type": ref.get("metadata", {}).get("type", "unknown")
+                }
+                json_safe_references.append(safe_ref)
             
             # Find surrounding text
             context_before, context_after = self._find_surrounding_text(docling_ref)
@@ -389,23 +452,19 @@ class ImageContentRelationship:
                 image["context"] = {}
                 
             image["context"].update({
-                "references": references,
+                "references": json_safe_references,
                 "text_before": context_before,
                 "text_after": context_after,
                 "caption": caption
             })
             
             # Store relationship in the relationships dictionary
-            self.relationships[image_id] = {
-                "image": image,
-                "references": references,
-                "context_before": context_before,
-                "context_after": context_after,
+            images_data["relationships"][image_id] = {
+                "docling_ref": docling_ref,
+                "references": json_safe_references,
                 "caption": caption
             }
             
-        # Add relationship map to images_data
-        images_data["relationships"] = self.relationships
         return images_data
         
     def _find_image_references(self, image_ref: str) -> List[Dict[str, Any]]:

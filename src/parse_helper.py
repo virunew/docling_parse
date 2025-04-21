@@ -164,6 +164,10 @@ def process_pdf_document(pdf_path, output_dir, config_file=None):
                     
                     # Update the image path in metadata
                     image["metadata"]["file_path"] = str(image_path.relative_to(output_path))
+                    
+                    # Convert raw_data bytes to base64 string for JSON serialization
+                    # We'll remove raw_data after conversion since data_uri already contains the base64 encoded data
+                    image.pop("raw_data", None)
             
             # Analyze image relationships with surrounding text
             element_map = build_element_map(docling_document)
