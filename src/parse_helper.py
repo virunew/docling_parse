@@ -167,18 +167,29 @@ def process_pdf_document(pdf_path, output_dir, config_file=None):
             
             # Analyze image relationships with surrounding text
             element_map = build_element_map(docling_document)
-            if element_map and element_map.get("flattened_sequence"):
-                relationship_analyzer = ImageContentRelationship(
-                    element_map, 
-                    element_map.get("flattened_sequence", [])
-                )
-                enhanced_images_data = relationship_analyzer.analyze_relationships(images_data)
+            if element_map:
+                # Get the flattened sequence and elements dictionary from the element map
+                flattened_sequence = element_map.get("flattened_sequence", [])
+                elements_dict = element_map.get("elements", {})
                 
-                # Save the enhanced image data as JSON
-                images_json_path = output_path / "images_data.json"
-                with open(images_json_path, "w", encoding="utf-8") as f:
-                    json.dump(enhanced_images_data, f, indent=2)
-                logger.info(f"Image extraction data saved to {images_json_path}")
+                if flattened_sequence:
+                    relationship_analyzer = ImageContentRelationship(
+                        elements_dict, 
+                        flattened_sequence
+                    )
+                    enhanced_images_data = relationship_analyzer.analyze_relationships(images_data)
+                    
+                    # Save the enhanced image data as JSON
+                    images_json_path = output_path / "images_data.json"
+                    with open(images_json_path, "w", encoding="utf-8") as f:
+                        json.dump(enhanced_images_data, f, indent=2)
+                    logger.info(f"Image extraction data saved to {images_json_path}")
+                else:
+                    logger.warning("No flattened sequence found in the element map")
+                    logger.warning("Image relationship analysis skipped")
+            else:
+                logger.warning("Failed to build element map for document")
+                logger.warning("Image relationship analysis skipped")
         
         except Exception as img_err:
             logger.warning(f"Image extraction encountered an error: {img_err}")

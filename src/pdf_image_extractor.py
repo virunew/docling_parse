@@ -130,12 +130,45 @@ class PDFImageExtractor:
         
         # Process all pictures in the document
         if hasattr(docling_document, 'pictures') and docling_document.pictures:
+            logger.info(f"Found {len(docling_document.pictures)} pictures in the document")
             for i, picture in enumerate(docling_document.pictures):
+                logger.debug(f"Processing picture {i+1} with reference: {getattr(picture, 'self_ref', '<unknown>')}")
                 # Extract image data and metadata
                 image_data = self._process_picture(picture, i, docling_document)
                 if image_data:
                     images_data["images"].append(image_data)
-        
+                    logger.debug(f"Successfully processed picture {i+1}")
+                else:
+                    logger.warning(f"Failed to process picture {i+1}")
+        else:
+            logger.warning("No pictures found in the document")
+            
+            # Try to find pictures in pages as a fallback
+            total_pictures = 0
+            if hasattr(docling_document, 'pages'):
+                logger.info("Attempting to find pictures in individual pages")
+                for page_idx, page in enumerate(docling_document.pages):
+                    if hasattr(page, 'pictures') and page.pictures:
+                        page_pictures = page.pictures
+                        logger.info(f"Found {len(page_pictures)} pictures in page {page_idx+1}")
+                        total_pictures += len(page_pictures)
+                        
+                        for pic_idx, picture in enumerate(page_pictures):
+                            logger.debug(f"Processing picture {pic_idx+1} from page {page_idx+1}")
+                            # Ensure picture has reference to its page
+                            if not hasattr(picture, 'page_number'):
+                                setattr(picture, 'page_number', page_idx + 1)
+                                
+                            image_data = self._process_picture(picture, total_pictures, docling_document)
+                            if image_data:
+                                images_data["images"].append(image_data)
+                                logger.debug(f"Successfully processed picture from page {page_idx+1}")
+                            else:
+                                logger.warning(f"Failed to process picture from page {page_idx+1}")
+                                
+                logger.info(f"Found a total of {total_pictures} pictures from all pages")
+            
+        logger.info(f"Total images extracted: {len(images_data['images'])}")
         return images_data
         
     def _process_picture(self, picture: Any, index: int, document: Any) -> Dict[str, Any]:
@@ -165,20 +198,56 @@ class PDFImageExtractor:
                 "size": self._get_picture_size(picture),
             }
             
+            logger.debug(f"Extracted metadata for {image_id}: page={metadata['page_number']}, format={metadata['format']}")
+            
             # Extract image data
             image_data = None
+            data_source = "unknown"
+            
+            # Try different ways to get image data in order of preference
             if hasattr(picture, 'image_data') and picture.image_data:
                 image_data = picture.image_data
+                data_source = "image_data"
+                logger.debug(f"Found image data directly in image_data attribute ({len(image_data)} bytes)")
             elif hasattr(picture, 'image_path') and picture.image_path:
                 # Load image data from path if available
                 try:
                     with open(picture.image_path, 'rb') as img_file:
                         image_data = img_file.read()
+                        data_source = "image_path"
+                        logger.debug(f"Loaded image data from path: {picture.image_path} ({len(image_data)} bytes)")
                 except Exception as e:
                     logger.warning(f"Failed to read image from path {picture.image_path}: {e}")
+            elif hasattr(picture, 'data') and picture.data:
+                # Some docling versions use 'data' attribute
+                image_data = picture.data
+                data_source = "data"
+                logger.debug(f"Found image data in data attribute ({len(image_data)} bytes)")
+            elif hasattr(picture, 'data_uri') and picture.data_uri:
+                # Handle data URI format
+                try:
+                    # Parse data URI (format: data:[<mediatype>][;base64],<data>)
+                    data_uri = picture.data_uri
+                    if ',' in data_uri:
+                        header, encoded_data = data_uri.split(',', 1)
+                        is_base64 = ';base64' in header
+                        
+                        if is_base64:
+                            image_data = base64.b64decode(encoded_data)
+                            data_source = "data_uri_base64"
+                            logger.debug(f"Decoded base64 image data from data_uri ({len(image_data)} bytes)")
+                        else:
+                            # Handle URL-encoded data
+                            from urllib.parse import unquote
+                            image_data = unquote(encoded_data).encode('latin1')
+                            data_source = "data_uri_urlencoded"
+                            logger.debug(f"Decoded URL-encoded image data from data_uri ({len(image_data)} bytes)")
+                except Exception as e:
+                    logger.warning(f"Failed to decode data URI: {e}")
             
             # Convert image data to base64 if available
             if image_data:
+                metadata["data_source"] = data_source
                 base64_data = base64.b64encode(image_data).decode('utf-8')
                 mime_type = metadata["format"] or "image/png"
                 data_uri = f"data:{mime_type};base64,{base64_data}"
@@ -189,7 +258,8 @@ class PDFImageExtractor:
                     "raw_data": image_data,  # Can be used for external storage
                 }
             else:
-                logger.warning(f"No image data found for picture {image_id}")
+                logger.warning(f"No image data found for picture {image_id}. Checked attributes: image_data, image_path, data, data_uri")
+                # Include empty metadata even if we couldn't get the image
                 return {
                     "metadata": metadata,
                     "data_uri": None,

@@ -118,6 +118,69 @@ def extract_elements(docling_document: Any) -> dict:
     logger.info(f"Extracted {len(element_map)} elements from document structure")
     return element_map
 
+def create_flattened_sequence(docling_document: Any, element_map: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Create a flattened sequence of elements in reading order from the document.
+    
+    Args:
+        docling_document: The DoclingDocument object
+        element_map: The document element map
+        
+    Returns:
+        A list of elements in reading order
+    """
+    flattened_sequence = []
+    
+    # First, try to use the body if it exists in the document
+    if hasattr(docling_document, 'body') and hasattr(docling_document.body, 'children'):
+        logger.info("Creating flattened sequence from document body")
+        
+        # Process body children in order
+        for child_ref in docling_document.body.children:
+            # Handle both direct objects and references
+            if hasattr(child_ref, 'self_ref'):
+                # Direct object
+                ref_id = child_ref.self_ref
+            elif hasattr(child_ref, '$ref'):
+                # Reference object using getattr to handle special attribute name
+                ref_id = getattr(child_ref, '$ref')
+            else:
+                continue
+                
+            # Remove the leading '#' if present
+            if ref_id.startswith('#'):
+                ref_id = ref_id[1:]
+                
+            # Find the corresponding element in our map
+            for element_id, element in element_map.items():
+                if element.get('id') == ref_id or f"#{element.get('id')}" == ref_id:
+                    flattened_sequence.append(element)
+                    break
+    
+    # If no body or no sequence created, fall back to page-by-page ordering
+    if not flattened_sequence:
+        logger.info("Falling back to page-by-page element ordering")
+        
+        # Get all page IDs
+        page_ids = [element_id for element_id in element_map 
+                    if element_id.startswith('page_')]
+        
+        # Sort page IDs by page number
+        page_ids.sort(key=lambda x: int(x.split('_')[1]) if len(x.split('_')) > 1 else 0)
+        
+        # Add elements in page order
+        for page_id in page_ids:
+            # First add the page itself
+            flattened_sequence.append(element_map[page_id])
+            
+            # Then add all elements that belong to this page
+            for element_id, element in element_map.items():
+                if element.get('parent_id') == page_id:
+                    flattened_sequence.append(element)
+    
+    logger.info(f"Created flattened sequence with {len(flattened_sequence)} elements")
+    return flattened_sequence
+
 def build_element_map(docling_document: Any) -> dict:
     """
     Build a complete element map from a DoclingDocument object.
@@ -127,13 +190,24 @@ def build_element_map(docling_document: Any) -> dict:
         
     Returns:
         A dictionary mapping element IDs to their corresponding element objects
+        and containing a flattened sequence of elements in reading order
     """
     # Extract all elements from the document
     logger.info("Step 1: Extracting elements from DoclingDocument")
     element_map = extract_elements(docling_document)
     
-    logger.info(f"Built element map with {len(element_map)} elements")
-    return element_map
+    # Create a flattened sequence of elements in reading order
+    logger.info("Step 2: Creating flattened sequence of elements")
+    flattened_sequence = create_flattened_sequence(docling_document, element_map)
+    
+    # Return the complete element map including the flattened sequence
+    result = {
+        "elements": element_map,
+        "flattened_sequence": flattened_sequence
+    }
+    
+    logger.info(f"Built element map with {len(element_map)} elements and {len(flattened_sequence)} elements in sequence")
+    return result
 
 # Example usage
 if __name__ == "__main__":
