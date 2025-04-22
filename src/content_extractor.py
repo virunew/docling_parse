@@ -248,51 +248,79 @@ def get_captions(
     # Look for captions before and after the element
     caption_indicators = ['caption', 'figure', 'fig', 'table', 'tbl']
     
-    # Check elements before
-    start_idx = max(0, element_index - max_distance)
-    for i in range(start_idx, element_index):
-        curr_element = flattened_sequence[i]
+    # Look for caption in elements before this one
+    for i in range(element_index - 1, max(0, element_index - max_distance - 1), -1):
+        candidate = flattened_sequence[i]
+        candidate_text = extract_text_content(candidate).lower()
         
-        # Check if the element is explicitly marked as a caption
-        curr_type = curr_element.get('metadata', {}).get('type', '').lower()
-        curr_label = curr_element.get('label', '').lower()
-        
-        is_caption = 'caption' in curr_type or 'caption' in curr_label
-        
-        # Check text content for caption indicators
-        if not is_caption:
-            text = extract_text_content(curr_element).lower()
-            for indicator in caption_indicators:
-                if indicator in text and len(text) < 200:  # Captions are typically short
-                    is_caption = True
-                    break
+        # Check if this element is likely a caption
+        is_caption = False
+        for indicator in caption_indicators:
+            if indicator in candidate_text and len(candidate_text) < 200:  # Captions are typically short
+                is_caption = True
+                break
         
         if is_caption:
-            return extract_text_content(curr_element)
+            return extract_text_content(candidate)
     
-    # Check elements after
-    end_idx = min(len(flattened_sequence), element_index + max_distance + 1)
-    for i in range(element_index + 1, end_idx):
-        curr_element = flattened_sequence[i]
+    # Look for caption in elements after this one
+    for i in range(element_index + 1, min(len(flattened_sequence), element_index + max_distance + 1)):
+        candidate = flattened_sequence[i]
+        candidate_text = extract_text_content(candidate).lower()
         
-        # Check if the element is explicitly marked as a caption
-        curr_type = curr_element.get('metadata', {}).get('type', '').lower()
-        curr_label = curr_element.get('label', '').lower()
-        
-        is_caption = 'caption' in curr_type or 'caption' in curr_label
-        
-        # Check text content for caption indicators
-        if not is_caption:
-            text = extract_text_content(curr_element).lower()
-            for indicator in caption_indicators:
-                if indicator in text and len(text) < 200:  # Captions are typically short
-                    is_caption = True
-                    break
+        # Check if this element is likely a caption
+        is_caption = False
+        for indicator in caption_indicators:
+            if indicator in candidate_text and len(candidate_text) < 200:  # Captions are typically short
+                is_caption = True
+                break
         
         if is_caption:
-            return extract_text_content(curr_element)
+            return extract_text_content(candidate)
     
     return None
+
+def format_table_content(element: Dict[str, Any]) -> str:
+    """
+    Format table content into a JSON-serializable grid structure suitable for database storage.
+    
+    This function builds on the extract_table_content function but ensures the output can be
+    directly serialized to a valid JSON string for storage in the table_block field of the database.
+    
+    Args:
+        element: The document element containing a table
+        
+    Returns:
+        A JSON-serializable string representation of the table grid
+    """
+    import json
+    
+    # Extract the table content using the existing function
+    table_grid = extract_table_content(element)
+    
+    if not table_grid:
+        logger.warning(f"Empty table grid for element: {element.get('id', 'unknown')}")
+        return "[]"
+    
+    try:
+        # Process the grid to ensure all values are properly formatted for JSON
+        processed_grid = []
+        for row in table_grid:
+            processed_row = []
+            for cell in row:
+                # Ensure cell is a string and handle special characters for JSON
+                processed_cell = str(cell).replace('\n', ' ').replace('\r', '').strip()
+                processed_row.append(processed_cell)
+            processed_grid.append(processed_row)
+        
+        # Convert the processed grid to a JSON string
+        json_grid = json.dumps(processed_grid, ensure_ascii=False)
+        return json_grid
+    
+    except Exception as e:
+        logger.error(f"Error formatting table content: {str(e)}")
+        # Return an empty JSON array as fallback
+        return "[]"
 
 # Example usage
 if __name__ == "__main__":
