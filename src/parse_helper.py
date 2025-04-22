@@ -9,6 +9,8 @@ from docling.document_converter import DocumentConverter, PdfFormatOption
 from element_map_builder import build_element_map
 from logger_config import logger
 from pdf_image_extractor import ImageContentRelationship, PDFImageExtractor
+# Import the new enhanced image extraction module
+from image_extraction_module import process_pdf_for_images
 
 
 def save_output(docling_document, output_dir):
@@ -42,9 +44,16 @@ def save_output(docling_document, output_dir):
             doc_dict = docling_document.export_to_dict()
 
             # Check if images_data.json exists, and if so, include it in the output
-            images_data_file = output_dir / "images_data.json"
+            # First check in the file-specific directory
+            file_output_dir = output_dir / doc_name
+            images_data_file = file_output_dir / "images_data.json"
+            
+            # If not found in file-specific directory, check in the base output directory
+            if not images_data_file.exists():
+                images_data_file = output_dir / "images_data.json"
+                
             if images_data_file.exists():
-                logger.debug("Found images_data.json, incorporating image data...")
+                logger.debug(f"Found images_data.json at {images_data_file}, incorporating image data...")
                 try:
                     with open(images_data_file, 'r', encoding='utf-8') as f:
                         images_data = json.load(f)
@@ -134,7 +143,22 @@ def process_pdf_document(pdf_path, output_dir, config_file=None):
         docling_document = conversion_result.document
         logger.info(f"Document successfully converted: {len(docling_document.pages)} pages found")
         
-        # Extract images from the PDF document using PDFImageExtractor
+        # Create the element map and save it
+        logger.info("Building element map")
+        element_map = build_element_map(docling_document)
+        doc_name = getattr(docling_document, 'name', 'docling_document')
+        
+        # Create file-specific output directory
+        file_output_dir = output_path / doc_name
+        file_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save the element map to the file-specific directory
+        element_map_path = file_output_dir / "element_map.json"
+        with open(element_map_path, 'w', encoding='utf-8') as f:
+            json.dump(element_map, f, indent=2)
+        logger.info(f"Element map saved to {element_map_path}")
+        
+        # Extract images from the PDF document using the enhanced image extractor
         logger.info("Extracting images from the PDF document")
         config = {
             'images_scale': 2.0,
@@ -142,62 +166,70 @@ def process_pdf_document(pdf_path, output_dir, config_file=None):
             'do_table_structure': True,
             'allow_external_plugins': True
         }
-        image_extractor = PDFImageExtractor(config)
-        try:
-            images_data = image_extractor.extract_images(pdf_path)
-            logger.info(f"Successfully extracted {len(images_data.get('images', []))} images from the PDF")
-            
-            # Create image output directory
-            images_dir = output_path / "images"
-            images_dir.mkdir(exist_ok=True)
-            
-            # Save extracted images to disk if they have raw data
-            for i, image in enumerate(images_data.get("images", [])):
-                if image.get("raw_data"):
-                    image_id = image.get("metadata", {}).get("id", f"image_{i}")
-                    image_format = image.get("metadata", {}).get("format", "image/png").split("/")[-1]
-                    image_path = images_dir / f"{image_id}.{image_format}"
-                    
-                    with open(image_path, "wb") as f:
-                        f.write(image.get("raw_data"))
-                    logger.debug(f"Saved image to {image_path}")
-                    
-                    # Update the image path in metadata
-                    image["metadata"]["file_path"] = str(image_path.relative_to(output_path))
-                    
-                    # Convert raw_data bytes to base64 string for JSON serialization
-                    # We'll remove raw_data after conversion since data_uri already contains the base64 encoded data
-                    image.pop("raw_data", None)
-            
-            # Analyze image relationships with surrounding text
-            element_map = build_element_map(docling_document)
-            if element_map:
-                # Get the flattened sequence and elements dictionary from the element map
-                flattened_sequence = element_map.get("flattened_sequence", [])
-                elements_dict = element_map.get("elements", {})
-                
-                if flattened_sequence:
-                    relationship_analyzer = ImageContentRelationship(
-                        elements_dict, 
-                        flattened_sequence
-                    )
-                    enhanced_images_data = relationship_analyzer.analyze_relationships(images_data)
-                    
-                    # Save the enhanced image data as JSON
-                    images_json_path = output_path / "images_data.json"
-                    with open(images_json_path, "w", encoding="utf-8") as f:
-                        json.dump(enhanced_images_data, f, indent=2)
-                    logger.info(f"Image extraction data saved to {images_json_path}")
-                else:
-                    logger.warning("No flattened sequence found in the element map")
-                    logger.warning("Image relationship analysis skipped")
-            else:
-                logger.warning("Failed to build element map for document")
-                logger.warning("Image relationship analysis skipped")
         
+        try:
+            # Use the new enhanced image extraction module
+            images_data = process_pdf_for_images(pdf_path, output_path, config)
+            logger.info(f"Successfully processed images from {pdf_path}")
         except Exception as img_err:
-            logger.warning(f"Image extraction encountered an error: {img_err}")
-            logger.warning("Continuing with document processing without images")
+            logger.warning(f"Enhanced image extraction encountered an error: {img_err}")
+            logger.warning("Falling back to legacy image extraction")
+            
+            # Fallback to legacy image extraction directly with PDFImageExtractor
+            try:
+                image_extractor = PDFImageExtractor(config)
+                images_data = image_extractor.extract_images(pdf_path)
+                logger.info(f"Successfully extracted {len(images_data.get('images', []))} images from the PDF")
+                
+                # Create image output directory
+                images_dir = output_path / "images"
+                images_dir.mkdir(exist_ok=True)
+                
+                # Save extracted images to disk if they have raw data
+                for i, image in enumerate(images_data.get("images", [])):
+                    if image.get("raw_data"):
+                        image_id = image.get("metadata", {}).get("id", f"image_{i}")
+                        image_format = image.get("metadata", {}).get("format", "image/png").split("/")[-1]
+                        image_path = images_dir / f"{image_id}.{image_format}"
+                        
+                        with open(image_path, "wb") as f:
+                            f.write(image.get("raw_data"))
+                        logger.debug(f"Saved image to {image_path}")
+                        
+                        # Update the image path in metadata
+                        image["metadata"]["file_path"] = str(image_path.relative_to(output_path))
+                        
+                        # Convert raw_data bytes to base64 string for JSON serialization
+                        # We'll remove raw_data after conversion since data_uri already contains the base64 encoded data
+                        image.pop("raw_data", None)
+                
+                # Analyze image relationships with surrounding text if element map is available
+                if element_map:
+                    # Get the flattened sequence and elements dictionary from the element map
+                    flattened_sequence = element_map.get("flattened_sequence", [])
+                    elements_dict = element_map.get("elements", {})
+                    
+                    if flattened_sequence:
+                        relationship_analyzer = ImageContentRelationship(
+                            elements_dict, 
+                            flattened_sequence
+                        )
+                        enhanced_images_data = relationship_analyzer.analyze_relationships(images_data)
+                        
+                        # Save the enhanced image data as JSON
+                        images_json_path = output_path / "images_data.json"
+                        with open(images_json_path, "w", encoding="utf-8") as f:
+                            json.dump(enhanced_images_data, f, indent=2)
+                        logger.info(f"Image extraction data saved to {images_json_path}")
+                    else:
+                        logger.warning("No flattened sequence found in the element map")
+                        logger.warning("Image relationship analysis skipped")
+                else:
+                    logger.warning("Failed to build element map for document")
+                    logger.warning("Image relationship analysis skipped")
+            except Exception as legacy_img_err:
+                logger.warning(f"Legacy image extraction also failed: {legacy_img_err}")
+                logger.warning("Continuing with document processing without images")
         
         # Return the DoclingDocument directly
         return docling_document
