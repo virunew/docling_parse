@@ -1,7 +1,13 @@
 # Core dependencies
-python-dotenv>=0.19.2
+python-dotenv>=0.19.0
+pathlib>=1.0.1
+typing-extensions>=4.0.0
+pydantic>=1.9.0
 
 # Testing dependencies
 pytest>=7.0.0
-reportlab>=4.0.0
-Pillow>=9.0.0 
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+
+# Only needed if not using local docling package
+# docling>=0.1.0 

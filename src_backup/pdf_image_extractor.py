@@ -6,21 +6,14 @@ the docling library. It handles image extraction, metadata capture, and
 integration with the existing element map structure.
 """
 
-# Fix docling imports
-import docling_fix
-
-# Standard imports
 import base64
 import io
-import json
 import logging
 import os
 import mimetypes
-import sys
-import tempfile
-import uuid
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Union, BinaryIO
+import uuid
 
 # Import docling library components
 from docling.document_converter import DocumentConverter
@@ -808,6 +801,7 @@ if __name__ == "__main__":
             print(f"  Size: {metadata['size']['width']}x{metadata['size']['height']}")
             
         # Save to JSON for debugging
+        import json
         output_file = 'extracted_images.json'
         with open(output_file, 'w') as f:
             # Remove binary data for JSON output

@@ -1,4 +1,7 @@
 import logging
+
+# Fix docling imports
+import docling_fix
 import os
 from pathlib import Path
 from docling.datamodel.base_models import InputFormat

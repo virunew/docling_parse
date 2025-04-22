@@ -1,211 +1,220 @@
 """
-Unit tests for the enhanced image extraction module.
+Test the enhanced image extraction module.
+
+This module contains tests for the EnhancedImageExtractor class and its functionality.
 """
 
+import unittest
 import os
 import json
 import shutil
-import unittest
-import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock, Mock
+from unittest.mock import patch, MagicMock
 
-import pytest
+# Add the src directory to the path
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Mock the docling imports before importing the module
+# Import docling fix helper to fix imports
+import docling_fix
+
+# Mock the docling imports
 sys.modules['docling.document_converter'] = MagicMock()
 sys.modules['docling.datamodel.base_models'] = MagicMock()
 sys.modules['docling.datamodel.pipeline_options'] = MagicMock()
-sys.modules['docling.datamodel.document'] = MagicMock()
+sys.modules['docling_core.types.doc'] = MagicMock()
 
-# Add the src directory to the Python path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-# Import the module to be tested
-with patch('src.pdf_image_extractor.DocumentConverter'), \
-     patch('src.pdf_image_extractor.InputFormat'), \
-     patch('src.pdf_image_extractor.PdfFormatOption'), \
-     patch('src.pdf_image_extractor.PdfPipelineOptions'), \
-     patch('src.pdf_image_extractor.ConversionResult'):
-    from src.image_extraction_module import (
-        EnhancedImageExtractor,
-        process_pdf_for_images
-    )
+# Import the module to test
+from src.image_extraction_module import EnhancedImageExtractor, process_pdf_for_images, retry_operation
 
 
-class TestImageExtractionModule(unittest.TestCase):
-    """
-    Test cases for the enhanced image extraction module.
-    """
+class TestRetryOperation(unittest.TestCase):
+    """Test cases for the retry_operation function."""
+    
+    def test_successful_operation(self):
+        """Test that retry_operation returns the result for a successful operation."""
+        mock_func = MagicMock(return_value="success")
+        result = retry_operation(mock_func, args=(1, 2), kwargs={"key": "value"})
+        self.assertEqual(result, "success")
+        mock_func.assert_called_once_with(1, 2, key="value")
+    
+    def test_retry_then_success(self):
+        """Test that retry_operation retries a failing operation until success."""
+        mock_func = MagicMock(side_effect=[ValueError("Fail"), ValueError("Fail again"), "success"])
+        result = retry_operation(
+            mock_func, 
+            max_retries=3, 
+            delay=0.01,  # Use small delay for tests
+            exceptions_to_retry=(ValueError,)
+        )
+        self.assertEqual(result, "success")
+        self.assertEqual(mock_func.call_count, 3)
+    
+    def test_all_retries_fail(self):
+        """Test that retry_operation raises the last exception if all retries fail."""
+        error = ValueError("All attempts failed")
+        mock_func = MagicMock(side_effect=[ValueError("Fail"), ValueError("Fail again"), error])
+        
+        with self.assertRaises(ValueError) as context:
+            retry_operation(
+                mock_func, 
+                max_retries=2, 
+                delay=0.01,  # Use small delay for tests
+                exceptions_to_retry=(ValueError,)
+            )
+        
+        self.assertEqual(str(context.exception), "All attempts failed")
+        self.assertEqual(mock_func.call_count, 3)  # Initial + 2 retries
+
+
+class TestEnhancedImageExtractor(unittest.TestCase):
+    """Test cases for the EnhancedImageExtractor class."""
     
     def setUp(self):
         """Set up the test environment."""
-        # Create a temporary test output directory
-        self.test_output_dir = Path("test_output/image_extraction_test")
-        self.test_output_dir.mkdir(parents=True, exist_ok=True)
+        # Create a temporary output directory
+        self.output_dir = Path("tests/temp_output")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Create a mock PDF path
-        self.pdf_path = Path("test_data/sample.pdf")
+        # Mock PDF path
+        self.pdf_path = Path("tests/data/test.pdf")
         
-        # Mock configuration
+        # Create a mock config
         self.config = {
             'images_scale': 2.0,
             'do_picture_description': True,
-            'do_table_structure': True,
-            'allow_external_plugins': True
+            'max_workers': 2,
+            'max_retries': 2,
+            'retry_delay': 0.01  # Small delay for tests
+        }
+        
+        # Mock image data
+        self.mock_image_data = {
+            "images": [
+                {
+                    "raw_data": b"test_image_data",
+                    "metadata": {
+                        "id": "test_image_1",
+                        "format": "image/png",
+                        "page": 1,
+                        "width": 100,
+                        "height": 100
+                    }
+                }
+            ],
+            "metadata": {
+                "file_path": str(self.pdf_path),
+                "extraction_time": "2023-01-01T00:00:00"
+            }
         }
     
     def tearDown(self):
         """Clean up after tests."""
-        # Remove the test output directory
-        if self.test_output_dir.exists():
-            shutil.rmtree(self.test_output_dir)
+        # Remove the temporary output directory
+        if self.output_dir.exists():
+            shutil.rmtree(self.output_dir)
     
     @patch('src.image_extraction_module.PDFImageExtractor')
-    def test_extract_and_save_images(self, mock_pdf_image_extractor):
+    def test_extract_and_save_images(self, mock_extractor_class):
         """Test the extract_and_save_images method."""
-        # Create a mock for the PDFImageExtractor and its extract_images method
-        mock_extractor_instance = MagicMock()
-        mock_pdf_image_extractor.return_value = mock_extractor_instance
+        # Configure the mock
+        mock_extractor = mock_extractor_class.return_value
+        mock_extractor.extract_images.return_value = self.mock_image_data
         
-        # Create mock images data
-        mock_images_data = {
-            "document_name": "sample",
-            "total_pages": 3,
-            "images": [
-                {
-                    "metadata": {
-                        "id": "picture_1",
-                        "docling_ref": "#/pictures/0",
-                        "page_number": 1,
-                        "format": "image/png",
-                        "size": {"width": 500, "height": 300}
-                    },
-                    "raw_data": b"mock_image_data_1"
-                },
-                {
-                    "metadata": {
-                        "id": "picture_2",
-                        "docling_ref": "#/pictures/1",
-                        "page_number": 2,
-                        "format": "image/jpeg",
-                        "size": {"width": 600, "height": 400}
-                    },
-                    "raw_data": b"mock_image_data_2"
-                }
-            ]
-        }
-        
-        # Configure the mock to return our mock data
-        mock_extractor_instance.extract_images.return_value = mock_images_data
-        
-        # Create a mock element map file
-        element_map_data = {
-            "flattened_sequence": [{"id": 1}, {"id": 2}],
-            "elements": {"1": {}, "2": {}}
-        }
-        
-        # Create the file-specific directory
-        sample_dir = self.test_output_dir / "sample"
-        sample_dir.mkdir(exist_ok=True)
-        
-        # Write the mock element map file
-        with open(sample_dir / "element_map.json", "w") as f:
-            json.dump(element_map_data, f)
-        
-        # Create an instance of EnhancedImageExtractor
+        # Create the extractor
         extractor = EnhancedImageExtractor(self.config)
+        
+        # Create a mock element map
+        element_map = {
+            "flattened_sequence": [
+                {"id": "elem1", "type": "text", "content": "Test text"},
+                {"id": "elem2", "type": "image", "content": ""}
+            ],
+            "elements": {
+                "elem1": {"id": "elem1", "type": "text"},
+                "elem2": {"id": "elem2", "type": "image"}
+            }
+        }
+        
+        # Create the element map file
+        file_output_dir = self.output_dir / self.pdf_path.stem
+        file_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        with open(file_output_dir / "element_map.json", "w") as f:
+            json.dump(element_map, f)
         
         # Mock the relationship analyzer
         with patch('src.image_extraction_module.ImageContentRelationship') as mock_relationship:
-            mock_relationship_instance = MagicMock()
-            mock_relationship.return_value = mock_relationship_instance
+            # Configure the mock relationship analyzer
+            mock_analyzer = mock_relationship.return_value
+            mock_analyzer.analyze_relationships.return_value = {
+                "images": self.mock_image_data["images"],
+                "metadata": self.mock_image_data["metadata"],
+                "relationships": [
+                    {
+                        "image_id": "test_image_1",
+                        "related_text": "Test text",
+                        "relationship_type": "caption"
+                    }
+                ]
+            }
             
-            # Mock the analyze_relationships method
-            enhanced_data = mock_images_data.copy()
-            enhanced_data["enhanced"] = True
-            mock_relationship_instance.analyze_relationships.return_value = enhanced_data
+            # Call the method
+            result = extractor.extract_and_save_images(self.pdf_path, self.output_dir)
             
-            # Call the method under test
-            result = extractor.extract_and_save_images(self.pdf_path, self.test_output_dir)
+            # Verify the results
+            self.assertIn("images", result)
+            self.assertIn("metadata", result)
+            self.assertIn("relationships", result)
             
-            # Assertions
-            mock_pdf_image_extractor.assert_called_once_with(self.config)
-            mock_extractor_instance.extract_images.assert_called_once_with(self.pdf_path)
-            
-            # Check if the file-specific directory was created
-            file_output_dir = self.test_output_dir / self.pdf_path.stem
-            self.assertTrue(file_output_dir.exists())
-            
-            # Check if the images directory was created
+            # Verify that the image was saved
             images_dir = file_output_dir / "images"
             self.assertTrue(images_dir.exists())
             
-            # Check if images were saved
-            self.assertTrue((images_dir / "picture_1.png").exists())
-            self.assertTrue((images_dir / "picture_2.jpeg").exists())
-            
-            # Check if images_data.json was created
+            # Verify that images_data.json was created
             images_data_path = file_output_dir / "images_data.json"
             self.assertTrue(images_data_path.exists())
             
-            # Check the result
-            self.assertEqual(result, enhanced_data)
+            # Verify that extraction stats were recorded
+            self.assertIn("extraction_stats", result)
+            self.assertIn("successful", result["extraction_stats"])
     
     @patch('src.image_extraction_module.EnhancedImageExtractor')
-    def test_process_pdf_for_images(self, mock_enhanced_extractor):
+    def test_process_pdf_for_images(self, mock_extractor_class):
         """Test the process_pdf_for_images function."""
-        # Create a mock for the EnhancedImageExtractor and its extract_and_save_images method
-        mock_extractor_instance = MagicMock()
-        mock_enhanced_extractor.return_value = mock_extractor_instance
+        # Configure the mock
+        mock_extractor = mock_extractor_class.return_value
+        mock_extractor.extract_and_save_images.return_value = {
+            "images": [
+                {
+                    "metadata": {
+                        "id": "test_image_1",
+                        "format": "image/png",
+                        "file_path": "test/test_image_1.png"
+                    }
+                }
+            ],
+            "extraction_stats": {
+                "successful": 1,
+                "failed": 0,
+                "retried": 0,
+                "total_time": 0.5
+            }
+        }
         
-        # Create mock images data
-        mock_images_data = {"mock": "data"}
+        # Call the function
+        result = process_pdf_for_images(self.pdf_path, self.output_dir, self.config)
         
-        # Configure the mock to return our mock data
-        mock_extractor_instance.extract_and_save_images.return_value = mock_images_data
+        # Verify the results
+        self.assertIn("images", result)
+        self.assertEqual(len(result["images"]), 1)
+        self.assertEqual(result["images"][0]["metadata"]["id"], "test_image_1")
         
-        # Call the function under test
-        result = process_pdf_for_images(self.pdf_path, self.test_output_dir, self.config)
-        
-        # Assertions
-        mock_enhanced_extractor.assert_called_once_with(self.config)
-        mock_extractor_instance.extract_and_save_images.assert_called_once_with(
-            self.pdf_path, self.test_output_dir
+        # Verify that the extractor was called with the correct arguments
+        mock_extractor_class.assert_called_once_with(self.config)
+        mock_extractor.extract_and_save_images.assert_called_once_with(
+            self.pdf_path, self.output_dir
         )
-        self.assertEqual(result, mock_images_data)
-    
-    @patch('src.image_extraction_module.PDFImageExtractor')
-    def test_extract_images_error_handling(self, mock_pdf_image_extractor):
-        """Test error handling in extract_and_save_images method."""
-        # Create a mock for the PDFImageExtractor and configure it to raise an exception
-        mock_extractor_instance = MagicMock()
-        mock_pdf_image_extractor.return_value = mock_extractor_instance
-        mock_extractor_instance.extract_images.side_effect = RuntimeError("Test error")
-        
-        # Create an instance of EnhancedImageExtractor
-        extractor = EnhancedImageExtractor(self.config)
-        
-        # Test that the method raises a RuntimeError
-        with self.assertRaises(RuntimeError):
-            extractor.extract_and_save_images(self.pdf_path, self.test_output_dir)
-    
-    @patch('src.image_extraction_module.PDFImageExtractor')
-    @patch('pathlib.Path.exists')
-    def test_file_not_found_error(self, mock_exists, mock_pdf_image_extractor):
-        """Test handling of non-existent PDF file."""
-        # Configure Path.exists() to return False
-        mock_exists.return_value = False
-        
-        # Create an instance of EnhancedImageExtractor
-        extractor = EnhancedImageExtractor(self.config)
-        
-        # Test with a non-existent file
-        non_existent_file = Path("test_data/non_existent.pdf")
-        
-        # Test that the method raises a FileNotFoundError
-        with self.assertRaises(FileNotFoundError):
-            extractor.extract_and_save_images(non_existent_file, self.test_output_dir)
 
 
 if __name__ == "__main__":

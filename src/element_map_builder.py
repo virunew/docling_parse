@@ -5,6 +5,9 @@ This module provides functionality to build a complete element map
 from a DoclingDocument object by extracting content elements.
 """
 
+# Fix docling imports
+import docling_fix
+
 import logging
 import json
 from typing import Dict, List, Tuple, Any, Optional

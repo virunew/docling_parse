@@ -13,9 +13,6 @@ Environment variables can be set in a .env file:
 - DOCLING_LOG_LEVEL: Logging verbosity (DEBUG, INFO, WARNING, ERROR)
 - DOCLING_CONFIG_FILE: Optional path to a configuration file
 """
-# Fix docling imports
-import docling_fix
-
 # Load environment variables first
 from dotenv import load_dotenv
 load_dotenv()

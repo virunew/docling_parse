@@ -1,96 +1,195 @@
 # Docling PDF Parser
 
-A PDF document parser that extracts structured content from PDF files using the docling library.
+This project provides enhanced PDF document parsing capabilities using the Docling library. It extracts text, images, tables, and metadata from PDF documents and structures them into a standardized format for downstream applications.
 
 ## Features
 
-- Extracts text and structure from PDF documents
-- Extracts images from PDF documents with metadata
-- Builds a complete element map of document components
-- Analyzes relationships between images and surrounding text
-- Saves the document structure and images as JSON
+- PDF document parsing with Docling's powerful document understanding capabilities
+- Enhanced image extraction with parallel processing
+- Automatic image-text relationship detection
+- Detailed metadata extraction and organization
+- Robust error handling and retry mechanisms
+- Standardized JSON output format
 
 ## Installation
 
+### Prerequisites
+
+- Python 3.8 or higher
+- Docling library (included in the repository)
+
+### Setup
+
 1. Clone the repository:
-   ```
-   git clone https://github.com/yourusername/docling_parse.git
+   ```bash
+   git clone https://github.com/your-org/docling_parse.git
    cd docling_parse
    ```
 
-2. Install the required dependencies:
+2. Create a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
+
+3. Install the required dependencies:
+   ```bash
    pip install -r requirements.txt
    ```
 
-3. Make sure the docling library is installed (follow docling installation instructions).
-
 ## Usage
 
-### Command Line Interface
+### Basic Usage
+
+Process a PDF file with default settings:
 
 ```bash
-python src/parse_main.py --pdf <path_to_pdf> --output <output_directory> --log-level INFO
+python src/parse_main.py --pdf_path your-document.pdf --output_dir output
 ```
 
-Options:
-- `--pdf <path>`: Path to the PDF document to process
-- `--output <directory>`: Directory to save output files
-- `--log-level <level>`: Log level (DEBUG, INFO, WARNING, ERROR)
-- `--config <file>`: Optional path to a configuration file
+### Configuration
+
+You can customize the parsing process by providing a configuration file:
+
+```bash
+python src/parse_main.py --pdf_path your-document.pdf --output_dir output --config_file config.json
+```
+
+Example configuration file:
+```json
+{
+  "pdf_pipeline_options": {
+    "images_scale": 2.0,
+    "generate_page_images": true,
+    "generate_picture_images": true,
+    "do_picture_description": true,
+    "do_table_structure": true,
+    "allow_external_plugins": true
+  },
+  "image_extraction": {
+    "max_workers": 8,
+    "max_retries": 3,
+    "processing_timeout": 300,
+    "retry_delay": 1.0,
+    "backoff_factor": 2.0
+  }
+}
+```
 
 ### Environment Variables
 
-You can also set options using environment variables:
+You can also configure the parser using environment variables:
+
 - `DOCLING_PDF_PATH`: Path to input PDF file
 - `DOCLING_OUTPUT_DIR`: Directory for output files
 - `DOCLING_LOG_LEVEL`: Logging verbosity (DEBUG, INFO, WARNING, ERROR)
 - `DOCLING_CONFIG_FILE`: Optional path to a configuration file
 
-### Output
+These can be set in a `.env` file in the project root.
 
-The parser generates the following output:
-1. A JSON file containing the document structure
-2. Extracted images saved in an `images` directory
-3. An `images_data.json` file with metadata about the extracted images
+## Output Structure
 
-## PDF Image Extraction
+The parser generates the following outputs:
 
-The `pdf_image_extractor.py` module provides functionality to extract images from PDF documents. It is integrated with the main parsing flow to automatically extract and process images.
+- `{document_name}.json`: The main output file containing the entire document structure
+- `{document_name}/element_map.json`: A map of all document elements with their relationships
+- `{document_name}/element_map_with_metadata.json`: Enhanced element map with metadata
+- `{document_name}/images_data.json`: Metadata about extracted images
+- `{document_name}/images/`: Directory containing all extracted images
 
-### Features
+### JSON Structure
 
-- Extracts embedded images from PDF documents
-- Captures image metadata (size, format, page number, position)
-- Analyzes relationships with surrounding text content
-- Supports various image formats (PNG, JPEG, etc.)
-- Handles multi-page documents
+The main output file has the following structure:
 
-### Integration
+```json
+{
+  "name": "document_name",
+  "texts": [...],
+  "tables": [...],
+  "pictures": [...],
+  "metadata": {...},
+  "images_data": {
+    "images": [
+      {
+        "metadata": {
+          "id": "picture_1",
+          "format": "image/png",
+          "file_path": "document_name/images/picture_1.png",
+          "page": 1,
+          "width": 500,
+          "height": 300
+        }
+      }
+    ],
+    "extraction_stats": {
+      "successful": 10,
+      "failed": 0,
+      "retried": 2,
+      "total_time": 5.23
+    }
+  }
+}
+```
 
-The PDF image extractor is integrated into the main parsing flow as follows:
+## Enhanced Image Extraction
 
-1. `parse_main.py` calls `process_pdf_document()` to process the PDF
-2. Within `process_pdf_document()`, an instance of `PDFImageExtractor` is created
-3. `extract_images()` is called to extract images from the PDF
-4. Extracted images are saved to the `images` directory
-5. Image metadata and relationships are saved to `images_data.json`
-6. `save_output()` integrates image data into the final JSON output
+The image extraction module provides several advanced features:
 
-## Testing
+- **Parallel Processing**: Extracts images concurrently for improved performance
+- **Automatic Retries**: Retries failed extractions with exponential backoff
+- **Error Resilience**: Continues processing even if some images fail
+- **Image-Text Relationships**: Analyzes relationships between images and surrounding text
+- **Detailed Statistics**: Provides extraction metrics for debugging and monitoring
 
-Run the tests with:
+Configure the image extraction process via the `image_extraction` section in the config file:
+
+```json
+{
+  "image_extraction": {
+    "max_workers": 8,        // Number of parallel workers
+    "max_retries": 3,        // Number of retry attempts for failed extractions
+    "processing_timeout": 300, // Timeout for the entire process in seconds
+    "retry_delay": 1.0,      // Initial delay between retries in seconds
+    "backoff_factor": 2.0    // Factor by which delay increases with each retry
+  }
+}
+```
+
+## Development
+
+### Project Structure
+
+```
+├── docling/              # Docling library
+├── src/
+│   ├── parse_main.py           # Main entry point
+│   ├── parse_helper.py         # Document processing functions
+│   ├── docling_integration.py  # Integration with docling library
+│   ├── element_map_builder.py  # Builds document element map
+│   ├── image_extraction_module.py # Enhanced image extraction
+│   ├── pdf_image_extractor.py  # Base image extraction functionality
+│   ├── metadata_extractor.py   # Extracts element metadata
+│   └── logger_config.py        # Logging configuration
+├── tests/
+│   ├── data/                   # Test data files
+│   ├── test_image_extraction_module.py # Image extraction tests
+│   └── test_integration.py     # Integration tests
+├── requirements.txt      # Dependencies
+└── README.md            # This file
+```
+
+### Running Tests
+
+Run the unit tests with:
 
 ```bash
 python -m unittest discover tests
 ```
 
-You can also run individual test modules:
-
-```bash
-python tests/test_with_mocks.py
-```
-
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+[Specify the license here]
+
+## Acknowledgements
+
+This project builds upon the powerful Docling document understanding library.

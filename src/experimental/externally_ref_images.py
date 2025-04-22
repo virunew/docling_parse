@@ -1,4 +1,7 @@
 import json
+
+# Fix docling imports
+import docling_fix
 import logging
 import time
 from pathlib import Path
