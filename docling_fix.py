@@ -8,6 +8,7 @@ Import this at the top of any file that needs to import from docling.
 import sys
 import os
 from pathlib import Path
+import logging
 
 def fix_docling_imports():
     """
@@ -27,26 +28,40 @@ def fix_docling_imports():
     print(f"Docling package directory: {docling_package_dir}")
     print(f"sys.path before: {sys.path}")
     
-    # Add both paths - but don't remove existing paths to avoid breaking anything
-    paths_added = False
+    # Clear previous docling paths to avoid confusion
+    for p in list(sys.path):
+        if 'docling_parse/docling' in p:
+            sys.path.remove(p)
     
-    # Add the parent directory first so 'import docling' works
-    if str(docling_dir.parent) not in sys.path:
-        sys.path.insert(0, str(docling_dir.parent))
-        paths_added = True
-        
-    # Add the docling directory so 'from docling.X import Y' works
-    if str(docling_dir) not in sys.path:
-        sys.path.insert(0, str(docling_dir))
-        paths_added = True
-        
-    # Add the docling/docling directory so imports inside the package work
-    if docling_package_dir.exists() and str(docling_package_dir) not in sys.path:
-        sys.path.insert(0, str(docling_package_dir))
-        paths_added = True
+    # First, add the docling package directory as the primary path
+    # This should handle "import docling.backend" style imports
+    sys.path.insert(0, str(docling_package_dir))
     
-    print(f"sys.path after: {sys.path}")
-    return paths_added
+    # Add the parent docling dir
+    sys.path.insert(0, str(docling_dir))
+    
+    # Add the project root to find any local modules
+    sys.path.insert(0, str(current_dir))
+    
+    # Ensure there are no duplicate paths
+    sys.path = list(dict.fromkeys(sys.path))
+    
+    print(f"cle: {sys.path}")
+    
+    # Create an empty __init__.py file in any missing package directories
+
+    ensure_init_file(docling_package_dir)
+    ensure_init_file(docling_dir)
+    ensure_init_file(docling_package_dir / "backend")
+    
+    return True
+
+def ensure_init_file(directory):
+    """Create __init__.py file if it doesn't exist"""
+    init_file = directory / "__init__.py"
+    if directory.exists() and not init_file.exists():
+        print(f"Creating missing __init__.py in {directory}")
+        init_file.touch()
 
 # Automatically fix imports when this module is imported
-fixed = fix_docling_imports() 
+#fixed = fix_docling_imports() 

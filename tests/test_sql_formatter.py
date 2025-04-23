@@ -1,190 +1,211 @@
 """
-SQL Formatter Tests
+Test cases for the SQL formatter module.
 
-This module contains tests for the SQL formatter.
+This module tests the functionality of the SQL formatter, which converts
+Docling document data into a standardized JSON format suitable for SQL database ingestion.
 """
-
-import unittest
-import os
 import json
-import tempfile
-from pathlib import Path
-from unittest.mock import patch, MagicMock
-
-# Add the src directory to the path
+import os
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+import unittest
+from pathlib import Path
 
-# Import the SQLFormatter directly
-from sql_formatter import SQLFormatter
+# Add the parent directory to the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Import the module to test
+from src.sql_formatter import process_docling_json_to_sql_format
+
 
 class TestSQLFormatter(unittest.TestCase):
-    """Unit tests for the SQL formatter."""
-    
+    """Test cases for the SQL formatter functionality."""
+
     def setUp(self):
         """Set up test fixtures."""
-        # Create a temporary directory for output
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.output_dir = Path(self.temp_dir.name)
-        
-        # Create a mock document for testing
-        self.mock_document = {
-            "pdf_name": "test_document.pdf",
-            "pdf_info": {
-                "Title": "Test Document",
-                "Author": "Test Author",
-                "Subject": "Test Subject",
-                "Creator": "Test Creator",
-                "Producer": "Test Producer",
-                "CreationDate": "2023-01-01",
-                "ModDate": "2023-01-02"
+        # Create a sample document data dictionary for testing
+        self.sample_document = {
+            "metadata": {
+                "filename": "test_document.pdf",
+                "mimetype": "application/pdf",
+                "binary_hash": "abc123"
             },
-            "num_pages": 5,
-            "elements": [
+            "furniture": [
+                {"text": "Header Text", "type": "header"},
+                {"text": "Footer Text", "type": "footer"},
+                {"text": "Page Number", "type": "page_number"}
+            ],
+            "body": [
+                # Text element
                 {
                     "type": "text",
-                    "page_num": 1,
-                    "text": "This is the title of the document",
-                    "font_size": 16,
-                    "y": 50,
-                    "height": 20,
-                    "page_height": 800
+                    "text": "This is a sample text paragraph.",
+                    "breadcrumb": "Document > Section > Subsection",
+                    "prov": {
+                        "page_no": 1,
+                        "bbox": {"l": 50, "t": 100, "r": 550, "b": 150}
+                    },
+                    "self_ref": "#/texts/0"
                 },
-                {
-                    "type": "text",
-                    "page_num": 1,
-                    "text": "This is the abstract of the document which provides an overview.",
-                    "font_size": 12,
-                    "y": 100,
-                    "height": 20,
-                    "page_height": 800
-                },
-                {
-                    "type": "text",
-                    "page_num": 1,
-                    "text": "This is the first paragraph of content.",
-                    "font_size": 12,
-                    "y": 150,
-                    "height": 20,
-                    "page_height": 800
-                },
+                # Table element
                 {
                     "type": "table",
-                    "page_num": 2,
-                    "data": [
-                        ["Header 1", "Header 2", "Header 3"],
-                        ["Row 1, Cell 1", "Row 1, Cell 2", "Row 1, Cell 3"],
-                        ["Row 2, Cell 1", "Row 2, Cell 2", "Row 2, Cell 3"]
-                    ]
+                    "grid": [["Header1", "Header2"], ["Value1", "Value2"]],
+                    "caption": "Sample Table",
+                    "breadcrumb": "Document > Section > Tables",
+                    "prov": {
+                        "page_no": 2,
+                        "bbox": {"l": 50, "t": 200, "r": 550, "b": 300}
+                    },
+                    "self_ref": "#/tables/0"
                 },
+                # Image element
                 {
-                    "type": "image",
-                    "page_num": 3,
-                    "image_index": 1,
-                    "caption": "This is an image caption",
-                    "ai_description": "This is an AI-generated description of the image"
-                },
-                {
-                    "type": "text",
-                    "page_num": 3,
-                    "text": "This is content after the image.",
-                    "font_size": 12,
-                    "y": 300,
-                    "height": 20,
-                    "page_height": 800
-                },
-                {
-                    "type": "text",
-                    "page_num": 4,
-                    "text": "This is a footnote.",
-                    "font_size": 8,
-                    "y": 750,
-                    "height": 20,
-                    "page_height": 800
+                    "type": "picture",
+                    "caption": "Sample Image",
+                    "breadcrumb": "Document > Section > Images",
+                    "context_before": "Text before the image.",
+                    "ocr_text": "Text extracted from image via OCR",
+                    "context_after": "Text after the image.",
+                    "external_path": "/path/to/images/test_image.png",
+                    "mimetype": "image/png",
+                    "width": 400,
+                    "height": 300,
+                    "prov": {
+                        "page_no": 3,
+                        "bbox": {"l": 100, "t": 150, "r": 500, "b": 450}
+                    },
+                    "self_ref": "#/pictures/0"
                 }
             ]
         }
-        
-        # Create SQLFormatter instance
-        self.formatter = SQLFormatter()
-    
-    def tearDown(self):
-        """Clean up test fixtures."""
-        self.temp_dir.cleanup()
-    
-    def test_format_as_sql_json(self):
-        """Test the basic SQL JSON formatting"""
-        # Format the document
-        formatted_data = self.formatter.format_as_sql_json(self.mock_document)
-        
-        # Verify basic structure
-        self.assertIn("source", formatted_data)
-        self.assertIn("furniture", formatted_data)
-        self.assertIn("chunks", formatted_data)
-        
-        # Verify source information
-        self.assertEqual(formatted_data["source"]["file_name"], "test_document.pdf")
-        self.assertEqual(formatted_data["source"]["title"], "Test Document")
-        self.assertEqual(formatted_data["source"]["author"], "Test Author")
-        
-        # Verify furniture contains metadata
-        self.assertIn("title", formatted_data["furniture"])
-        self.assertEqual(formatted_data["furniture"]["title"], "Test Document")
-        
-        # Verify chunks content
-        chunks = formatted_data["chunks"]
-        self.assertTrue(len(chunks) > 0)
-    
-    def test_save_formatted_output(self):
-        """Test saving SQL-formatted output to a file"""
-        # Format and save the document
-        output_file = self.formatter.save_formatted_output(self.mock_document, str(self.output_dir))
-        
-        # Verify the file exists
-        self.assertTrue(Path(output_file).exists())
-        
-        # Verify file extension
-        self.assertTrue(output_file.endswith('.json'))
-        
-        # Check content
-        with open(output_file, 'r', encoding='utf-8') as f:
-            saved_data = json.load(f)
-        
-        # Verify structure
-        self.assertIn("source", saved_data)
-        self.assertIn("furniture", saved_data)
-        self.assertIn("chunks", saved_data)
-    
-    def test_extract_source_metadata(self):
-        """Test the _extract_source_metadata method"""
-        metadata = self.formatter._extract_source_metadata(self.mock_document)
-        
-        self.assertEqual(metadata["file_name"], "test_document.pdf")
-        self.assertEqual(metadata["title"], "Test Document")
-        self.assertEqual(metadata["author"], "Test Author")
-        self.assertEqual(metadata["page_count"], 5)
-        self.assertEqual(metadata["content_type"], "document")
-    
-    def test_extract_furniture(self):
-        """Test the _extract_furniture method"""
-        furniture = self.formatter._extract_furniture(self.mock_document)
-        
-        self.assertEqual(furniture["title"], "Test Document")
-        self.assertIn("abstract of the document", furniture["abstract"])
-        self.assertIn("This is a footnote", furniture["footnotes"][0])
-    
-    def test_empty_document(self):
-        """Test handling of empty document"""
-        with self.assertRaises(ValueError):
-            self.formatter.format_as_sql_json({})
 
-    @unittest.skip("Integration test requires actual parse_main module")
-    @patch('src.parse_main.process_pdf_document')
-    def test_integration_with_main(self, mock_process):
-        """Test integration with main function using mock document"""
-        # Skip this test for now as it requires more complex mocking
-        pass
-
+    def test_process_docling_json_to_sql_format(self):
+        """Test the main processing function."""
+        # Call the function with sample data
+        result = process_docling_json_to_sql_format(self.sample_document, "test-doc-001")
+        
+        # Verify the overall structure
+        self.assertIn("chunks", result)
+        self.assertIn("furniture", result)
+        self.assertIn("source_metadata", result)
+        
+        # Verify the source metadata
+        self.assertEqual(result["source_metadata"]["filename"], "test_document.pdf")
+        self.assertEqual(result["source_metadata"]["mimetype"], "application/pdf")
+        self.assertEqual(result["source_metadata"]["binary_hash"], "abc123")
+        
+        # Verify furniture items
+        self.assertEqual(len(result["furniture"]), 3)
+        self.assertIn("Header Text", result["furniture"])
+        self.assertIn("Footer Text", result["furniture"])
+        self.assertIn("Page Number", result["furniture"])
+        
+        # Verify chunks
+        self.assertEqual(len(result["chunks"]), 3)
+        
+        # Check if all required fields are present in each chunk
+        required_fields = [
+            "_id", "block_id", "doc_id", "content_type", "file_type", 
+            "master_index", "master_index2", "coords_x", "coords_y", 
+            "coords_cx", "coords_cy", "author_or_speaker", "added_to_collection", 
+            "file_source", "table_block", "modified_date", "created_date", 
+            "creator_tool", "external_files", "text_block", "header_text", 
+            "text_search", "user_tags", "special_field1", "special_field2", 
+            "special_field3", "graph_status", "dialog", "embedding_flags", "metadata"
+        ]
+        
+        for chunk in result["chunks"]:
+            for field in required_fields:
+                self.assertIn(field, chunk)
+    
+    def test_text_chunk_processing(self):
+        """Test processing of text chunks."""
+        result = process_docling_json_to_sql_format(self.sample_document)
+        
+        # Get the first chunk (text chunk)
+        text_chunk = result["chunks"][0]
+        
+        # Verify content type
+        self.assertEqual(text_chunk["content_type"], "text")
+        
+        # Verify text content
+        self.assertIn("This is a sample text paragraph.", text_chunk["text_block"])
+        
+        # Verify breadcrumb
+        self.assertEqual(text_chunk["header_text"], "Document > Section > Subsection")
+        
+        # Verify coordinates
+        self.assertEqual(text_chunk["coords_x"], 50)
+        self.assertEqual(text_chunk["coords_y"], 100)
+        self.assertEqual(text_chunk["coords_cx"], 500)  # 550 - 50
+        self.assertEqual(text_chunk["coords_cy"], 50)   # 150 - 100
+        
+        # Verify metadata
+        self.assertEqual(text_chunk["metadata"]["page_no"], 1)
+        self.assertEqual(text_chunk["metadata"]["docling_label"], "text")
+    
+    def test_table_chunk_processing(self):
+        """Test processing of table chunks."""
+        result = process_docling_json_to_sql_format(self.sample_document)
+        
+        # Get the second chunk (table chunk)
+        table_chunk = result["chunks"][1]
+        
+        # Verify content type
+        self.assertEqual(table_chunk["content_type"], "table")
+        
+        # Verify table content
+        self.assertIsNotNone(table_chunk["table_block"])
+        
+        # Parse table_block and verify content
+        table_data = json.loads(table_chunk["table_block"])
+        self.assertEqual(table_data, [["Header1", "Header2"], ["Value1", "Value2"]])
+        
+        # Verify text block contains caption
+        self.assertIn("Sample Table", table_chunk["text_block"])
+        
+        # Verify metadata
+        self.assertEqual(table_chunk["metadata"]["page_no"], 2)
+        self.assertEqual(table_chunk["metadata"]["caption"], "Sample Table")
+    
+    def test_image_chunk_processing(self):
+        """Test processing of image chunks."""
+        result = process_docling_json_to_sql_format(self.sample_document)
+        
+        # Get the third chunk (image chunk)
+        image_chunk = result["chunks"][2]
+        
+        # Verify content type
+        self.assertEqual(image_chunk["content_type"], "image")
+        
+        # Verify external file path
+        self.assertEqual(image_chunk["external_files"], "/path/to/images/test_image.png")
+        
+        # Verify text block contains OCR text
+        self.assertIn("[Image Text: Text extracted from image via OCR]", image_chunk["text_block"])
+        self.assertIn("Text before the image.", image_chunk["text_block"])
+        self.assertIn("Text after the image.", image_chunk["text_block"])
+        
+        # Verify metadata
+        self.assertEqual(image_chunk["metadata"]["page_no"], 3)
+        self.assertEqual(image_chunk["metadata"]["caption"], "Sample Image")
+        self.assertEqual(image_chunk["metadata"]["image_width"], 400)
+        self.assertEqual(image_chunk["metadata"]["image_height"], 300)
+        self.assertEqual(image_chunk["metadata"]["image_mimetype"], "image/png")
+        self.assertEqual(image_chunk["metadata"]["image_ocr_text"], "Text extracted from image via OCR")
+    
+    def test_doc_id_assignment(self):
+        """Test document ID assignment."""
+        # Test with doc_id provided
+        result_with_id = process_docling_json_to_sql_format(self.sample_document, "test-doc-123")
+        for chunk in result_with_id["chunks"]:
+            self.assertEqual(chunk["doc_id"], "test-doc-123")
+        
+        # Test without doc_id
+        result_without_id = process_docling_json_to_sql_format(self.sample_document)
+        for chunk in result_without_id["chunks"]:
+            self.assertIsNone(chunk["doc_id"])
+    
 
 if __name__ == "__main__":
     unittest.main() 

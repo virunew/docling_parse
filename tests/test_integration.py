@@ -39,6 +39,12 @@ from src.output_formatter import OutputFormatter
 # Import the SQLFormatter class for testing SQL output
 from src.sql_formatter import SQLFormatter
 
+# Add parent directory to path to import modules
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Import the module to test
+import parse_main
+
 class TestDocumentParsingIntegration(unittest.TestCase):
     """Integration tests for the document parsing process."""
     
@@ -968,6 +974,114 @@ class TestSQLFormatterIntegration(unittest.TestCase):
             self.assertIn("date", chunk)
             self.assertIn("title", chunk)
 
+
+class TestParsePDFIntegration(unittest.TestCase):
+    """Integration tests for PDF parsing pipeline"""
+    
+    def setUp(self):
+        """Set up test case"""
+        self.test_dir = tempfile.mkdtemp()
+        
+        # Path to the sample JSON file (using as mock input instead of actual PDF)
+        self.current_dir = os.path.dirname(os.path.abspath(__file__))
+        self.sample_json = os.path.join(self.current_dir, "..", "output_main", "SBW_AI sample page10-11.json")
+        
+        # Create a mock function to replace process_pdf_document
+        self.original_process_pdf = parse_main.process_pdf_document
+        
+        def mock_process_pdf(pdf_path, output_dir, config_file=None):
+            """Mock function that returns the sample JSON instead of processing a PDF"""
+            with open(self.sample_json, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        
+        # Replace the real function with our mock
+        parse_main.process_pdf_document = mock_process_pdf
+    
+    def tearDown(self):
+        """Clean up after test"""
+        # Restore the original function
+        parse_main.process_pdf_document = self.original_process_pdf
+        
+        # Remove the temp directory
+        shutil.rmtree(self.test_dir)
+    
+    def test_main_function_creates_standardized_output(self):
+        """Test that main() creates all required output files including standardized output"""
+        # Set up arguments for parse_main
+        sys.argv = [
+            'parse_main.py',
+            '--pdf_path', self.sample_json,  # Using JSON as mock PDF input
+            '--output_dir', self.test_dir,
+            '--log_level', 'DEBUG'
+        ]
+        
+        # Run the main function
+        result = parse_main.main()
+        
+        # Check that it completed successfully
+        self.assertEqual(result, 0)
+        
+        # Check that the standardized output file was created
+        expected_filename = os.path.splitext(os.path.basename(self.sample_json))[0] + "_formatted.json"
+        standardized_output_path = os.path.join(self.test_dir, expected_filename)
+        self.assertTrue(os.path.exists(standardized_output_path))
+        
+        # Load the standardized output and check its structure
+        with open(standardized_output_path, 'r', encoding='utf-8') as f:
+            standardized_output = json.load(f)
+        
+        # Verify the structure matches the requirements in the PRD
+        self.assertIn("chunks", standardized_output)
+        self.assertIn("furniture", standardized_output)
+        self.assertIn("source_metadata", standardized_output)
+        
+        # Check that chunks contains items with the correct structure
+        if standardized_output["chunks"]:
+            chunk = standardized_output["chunks"][0]
+            self.assertIn("format", chunk)
+            self.assertIn("content", chunk)
+            self.assertIn("metadata", chunk)
+
+    def test_standardized_output_image_extraction(self):
+        """Test that standardized output correctly extracts image content"""
+        # Set up arguments for parse_main
+        sys.argv = [
+            'parse_main.py',
+            '--pdf_path', self.sample_json,  # Using JSON as mock PDF input
+            '--output_dir', self.test_dir,
+            '--log_level', 'DEBUG'
+        ]
+        
+        # Run the main function
+        result = parse_main.main()
+        
+        # Check that it completed successfully
+        self.assertEqual(result, 0)
+        
+        # Check that the standardized output file was created
+        expected_filename = os.path.splitext(os.path.basename(self.sample_json))[0] + "_formatted.json"
+        standardized_output_path = os.path.join(self.test_dir, expected_filename)
+        self.assertTrue(os.path.exists(standardized_output_path))
+        
+        # Load the standardized output
+        with open(standardized_output_path, 'r', encoding='utf-8') as f:
+            standardized_output = json.load(f)
+        
+        # Find image chunks
+        image_chunks = [chunk for chunk in standardized_output["chunks"] if chunk["format"] == "image"]
+        
+        # Verify we have image chunks
+        self.assertTrue(len(image_chunks) > 0, "No image chunks found in standardized output")
+        
+        # Verify image content is correctly extracted
+        for chunk in image_chunks:
+            # Check for non-empty content
+            if chunk["content"]:
+                # Verify it starts with data:image/ format
+                self.assertTrue(
+                    chunk["content"].startswith("data:image/"), 
+                    f"Image content doesn't have expected format: {chunk['content'][:30]}..."
+                )
 
 if __name__ == "__main__":
     unittest.main() 

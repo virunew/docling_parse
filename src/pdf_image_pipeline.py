@@ -20,7 +20,6 @@ from typing import Dict, List, Any, Optional, Union, Tuple
 # Import the necessary components
 from pdf_image_extractor import PDFImageExtractor
 # Assuming there's an ImageSaver module that we'll need to implement
-from image_saver import ImageSaver
 
 # Configure logging
 logger = logging.getLogger(__name__)

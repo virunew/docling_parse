@@ -15,13 +15,14 @@ Environment variables can be set in a .env file:
 - DOCLING_OUTPUT_FORMAT: Output format (json, md, html, sql)
 - DOCLING_IMAGE_BASE_URL: Base URL for image links in output
 """
-# Fix docling imports
-import docling_fix
+
 
 # Load environment variables first
 from dotenv import load_dotenv
 load_dotenv()
 
+# Fix docling imports
+#import docling_fix
 # Standard library imports
 import argparse
 import json
@@ -43,17 +44,13 @@ from output_formatter import OutputFormatter
 
 # Import the SQL formatter
 from src.sql_formatter import SQLFormatter
-
+print ("PYTHONPATH:", os.environ.get("PYTHONPATH"))
 # Import docling library components
-try:
-    from docling.docling.document_converter import DocumentConverter
-    from docling.docling.datamodel.base_models import InputFormat
-    from docling.docling.document_converter import PdfFormatOption
-    from docling.docling.datamodel.pipeline_options import PdfPipelineOptions
-except ImportError as e:
-    logging.error(f"Error importing docling library: {e}")
-    logging.error("Please install the docling library.")
-    sys.exit(1)
+from docling.docling.document_converter import  DocumentConverter
+from docling.docling.datamodel.base_models import InputFormat
+from docling.docling.document_converter import PdfFormatOption
+from docling.docling.datamodel.pipeline_options import PdfPipelineOptions
+
 
 # Import the element map builder
 try:
@@ -80,6 +77,9 @@ try:
 except ImportError as e:
     logging.error(f"Error importing local modules: {e}")
     sys.exit(1)
+
+# Import the format_standardized_output module
+from format_standardized_output import save_standardized_output
 
 
 class Configuration:
@@ -520,9 +520,17 @@ def main():
             config.output_format
         )
         
+        # Create and save the standardized output file required by the PRD
+        standardized_output_file = save_standardized_output(
+            document_data,
+            config.output_dir,
+            config.pdf_path
+        )
+        
         logger.info(f"Document processing completed successfully")
         logger.info(f"Standard output saved to: {output_file}")
         logger.info(f"Formatted output saved to: {formatted_output_file}")
+        logger.info(f"Standardized output saved to: {standardized_output_file}")
         
         return 0
     except Exception as e:

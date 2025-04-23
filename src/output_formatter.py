@@ -13,6 +13,9 @@ from typing import Dict, Any, List, Union, Optional
 import io
 import csv
 
+# Import the SQL formatter
+from src.sql_formatter import process_docling_json_to_sql_format
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -42,7 +45,8 @@ class OutputFormatter:
             'max_heading_depth': 3,
             'include_page_breaks': True,
             'include_captions': True,
-            'table_formatting': 'grid'  # 'grid', 'simple', or 'none'
+            'table_formatting': 'grid',  # 'grid', 'simple', or 'none'
+            'doc_id': None  # Document ID for SQL formatting
         }
         
         # Apply default config for any missing values
@@ -51,6 +55,36 @@ class OutputFormatter:
                 self.config[key] = value
                 
         logger.debug(f"Initialized OutputFormatter with config: {self.config}")
+    
+    def format_as_sql_json(self, document_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Format the document data as SQL-compatible JSON.
+        
+        This format is optimized for database ingestion with a specific schema.
+        
+        Args:
+            document_data: Original document data dictionary
+            
+        Returns:
+            Dictionary with SQL-compatible document structure
+        """
+        logger.info("Formatting document as SQL-compatible JSON")
+        
+        try:
+            # Process document data using the SQL formatter
+            sql_data = process_docling_json_to_sql_format(document_data, self.config.get('doc_id'))
+            logger.info(f"Successfully formatted document as SQL-compatible JSON with {len(sql_data.get('chunks', []))} chunks")
+            return sql_data
+            
+        except Exception as e:
+            logger.error(f"Error formatting document as SQL-compatible JSON: {e}", exc_info=True)
+            # Return minimal structure in case of error
+            return {
+                "error": str(e),
+                "chunks": [],
+                "furniture": [],
+                "source_metadata": {}
+            }
     
     def format_as_simplified_json(self, document_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -586,69 +620,67 @@ class OutputFormatter:
         document_data: Dict[str, Any], 
         output_path: Union[str, Path], 
         format_type: str = "json"
-    ) -> Path:
+    ) -> str:
         """
-        Save the formatted document to a file.
+        Format and save document data to a file in the specified format.
         
         Args:
-            document_data: Original document data dictionary
-            output_path: Directory to save the formatted file
-            format_type: Output format type ('json', 'md', 'html', or 'csv')
+            document_data: Document data dictionary
+            output_path: Directory to save the output
+            format_type: Format to save as (json, md, html, csv, sql)
             
         Returns:
-            Path object to the saved file
+            Path to the saved file
         """
-        output_path = Path(output_path)
-        output_path.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Saving formatted output in {format_type} format to {output_path}")
         
-        # Get the document name, ensuring we handle various cases
-        doc_name = "document"  # Default fallback name
+        # Ensure output_path is a Path object
+        if isinstance(output_path, str):
+            output_path = Path(output_path)
+            
+        # Create output directory if it doesn't exist
+        if not output_path.exists():
+            output_path.mkdir(parents=True, exist_ok=True)
         
-        if isinstance(document_data, dict):
-            # First check if name is directly in the dictionary
-            if "name" in document_data:
-                doc_name = document_data.get("name", "document")
-            # Then check metadata
-            elif "metadata" in document_data and isinstance(document_data["metadata"], dict):
-                doc_name = document_data["metadata"].get("name", "document")
-            # Finally check origin
-            elif "origin" in document_data and isinstance(document_data["origin"], dict):
-                # Try to get filename without extension from origin
-                filename = document_data["origin"].get("filename", "")
-                if filename:
-                    # Strip extension if present
-                    doc_name = Path(filename).stem
+        # Get document name for output filename
+        doc_name = document_data.get("metadata", {}).get("filename", "document")
+        if isinstance(doc_name, str):
+            doc_name = Path(doc_name).stem
         
-        # Sanitize doc_name to be safe for file names
-        doc_name = doc_name.replace('/', '_').replace('\\', '_').replace(':', '_')
-        
-        # Format the output based on the requested format type
+        # Format the document based on the requested format
         if format_type.lower() == "json":
             formatted_data = self.format_as_simplified_json(document_data)
             output_file = output_path / f"{doc_name}_simplified.json"
             
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(formatted_data, f, indent=2)
+            with open(output_file, "w", encoding="utf-8") as f:
+                json.dump(formatted_data, f, ensure_ascii=False, indent=2)
+        
+        elif format_type.lower() == "sql":
+            formatted_data = self.format_as_sql_json(document_data)
+            output_file = output_path / f"{doc_name}_sql.json"
+            
+            with open(output_file, "w", encoding="utf-8") as f:
+                json.dump(formatted_data, f, ensure_ascii=False, indent=2)
                 
         elif format_type.lower() == "md":
             formatted_data = self.format_as_markdown(document_data)
             output_file = output_path / f"{doc_name}.md"
             
-            with open(output_file, 'w', encoding='utf-8') as f:
+            with open(output_file, "w", encoding="utf-8") as f:
                 f.write(formatted_data)
                 
         elif format_type.lower() == "html":
             formatted_data = self.format_as_html(document_data)
             output_file = output_path / f"{doc_name}.html"
             
-            with open(output_file, 'w', encoding='utf-8') as f:
+            with open(output_file, "w", encoding="utf-8") as f:
                 f.write(formatted_data)
                 
         elif format_type.lower() == "csv":
             formatted_data = self.format_as_csv(document_data)
             output_file = output_path / f"{doc_name}.csv"
             
-            with open(output_file, 'w', encoding='utf-8') as f:
+            with open(output_file, "w", encoding="utf-8", newline="") as f:
                 f.write(formatted_data)
                 
         else:
@@ -656,11 +688,11 @@ class OutputFormatter:
             formatted_data = self.format_as_simplified_json(document_data)
             output_file = output_path / f"{doc_name}_simplified.json"
             
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(formatted_data, f, indent=2)
+            with open(output_file, "w", encoding="utf-8") as f:
+                json.dump(formatted_data, f, ensure_ascii=False, indent=2)
         
         logger.info(f"Saved formatted output to {output_file}")
-        return output_file
+        return str(output_file)
     
     def _extract_document_metadata(self, document_data: Dict[str, Any]) -> Dict[str, Any]:
         """

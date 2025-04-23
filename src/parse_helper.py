@@ -7,7 +7,7 @@ images with enhanced processing capabilities.
 """
 
 # Fix docling imports
-import docling_fix
+#import docling_fix
 
 import logging
 import os
@@ -288,12 +288,19 @@ def process_extracted_images(images_data, images_dir, output_path):
                 with open(image_path, "wb") as f:
                     f.write(image.get("raw_data"))
                 
-                # Update the image path in metadata
-                image["metadata"]["file_path"] = str(image_path.relative_to(output_path))
+                # Create relative path for referencing from other components
+                relative_path = str(image_path.relative_to(output_path))
+                
+                # Update the image paths in metadata
+                image["metadata"]["file_path"] = relative_path
+                
+                # Add an external_path field for direct reference in standardized output
+                image["external_path"] = relative_path
                 
                 # Remove raw_data bytes since data_uri already contains the base64 encoded data
                 image.pop("raw_data", None)
                 
+                logger.info(f"Saved image {image_id} to {relative_path}")
                 saved_count += 1
         except Exception as e:
             logger.warning(f"Error saving image {i}: {e}")

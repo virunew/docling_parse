@@ -10,8 +10,10 @@ import sys
 import json
 import pytest
 import tempfile
+import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
+import base64
 
 # Add src directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
@@ -280,4 +282,67 @@ class TestParseHelper:
             save_output(self.mock_document, self.output_dir)
         
         # Verify error message
-        assert "DoclingDocument export failed" in str(excinfo.value) 
+        assert "DoclingDocument export failed" in str(excinfo.value)
+
+class TestParseHelper(unittest.TestCase):
+    """Test cases for parse_helper functions"""
+    
+    def test_process_extracted_images(self):
+        """Test that process_extracted_images correctly sets external file paths"""
+        # Create test data with raw image data
+        test_image_data = b'Test image binary data'
+        test_images_data = {
+            "images": [
+                {
+                    "raw_data": test_image_data,
+                    "data_uri": f"data:image/png;base64,{base64.b64encode(test_image_data).decode('utf-8')}",
+                    "metadata": {
+                        "id": "test_image_1",
+                        "format": "image/png",
+                        "description": "Test image"
+                    }
+                }
+            ]
+        }
+        
+        # Create temporary directories for testing
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_dir_path = Path(temp_dir)
+            output_path = temp_dir_path
+            images_dir = temp_dir_path / "images"
+            images_dir.mkdir(exist_ok=True)
+            
+            # Process the images
+            process_extracted_images(test_images_data, images_dir, output_path)
+            
+            # Check that the file was saved
+            expected_file_path = images_dir / "test_image_1.png"
+            self.assertTrue(expected_file_path.exists(), f"Image file not found at {expected_file_path}")
+            
+            # Check that the raw_data was removed
+            self.assertNotIn("raw_data", test_images_data["images"][0], "raw_data should be removed")
+            
+            # Check that file_path was set in metadata
+            self.assertIn("file_path", test_images_data["images"][0]["metadata"], "file_path missing in metadata")
+            expected_relative_path = str(Path("images") / "test_image_1.png")
+            self.assertEqual(test_images_data["images"][0]["metadata"]["file_path"], expected_relative_path)
+            
+            # Check that external_path was set
+            self.assertIn("external_path", test_images_data["images"][0], "external_path missing")
+            self.assertEqual(test_images_data["images"][0]["external_path"], expected_relative_path)
+            
+            # Check that images_data.json was created
+            json_path = output_path / "images_data.json"
+            self.assertTrue(json_path.exists(), f"images_data.json not found at {json_path}")
+            
+            # Verify the content of the JSON file
+            with open(json_path, "r", encoding="utf-8") as f:
+                saved_data = json.load(f)
+                self.assertEqual(
+                    saved_data["images"][0]["external_path"], 
+                    expected_relative_path,
+                    "external_path in saved JSON doesn't match expected"
+                )
+
+if __name__ == "__main__":
+    unittest.main() 

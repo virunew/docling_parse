@@ -34,15 +34,15 @@ from logger_config import logger, setup_logging
 from parse_helper import process_pdf_document, save_output
 
 # Import docling library components
-try:
-    from docling.document_converter import DocumentConverter
-    from docling.datamodel.base_models import InputFormat
-    from docling.document_converter import PdfFormatOption
-    from docling.datamodel.pipeline_options import PdfPipelineOptions
-except ImportError as e:
-    logging.error(f"Error importing docling library: {e}")
-    logging.error("Please install the docling library.")
-    sys.exit(1)
+# try:
+#     from docling.document_converter import DocumentConverter
+#     from docling.datamodel.base_models import InputFormat
+#     from docling.document_converter import PdfFormatOption
+#     from docling.datamodel.pipeline_options import PdfPipelineOptions
+# except ImportError as e:
+#     logging.error(f"Error importing docling library: {e}")
+#     logging.error("Please install the docling library.")
+#     sys.exit(1)
 
 # Import the element map builder
 try:
