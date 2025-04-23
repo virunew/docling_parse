@@ -43,10 +43,10 @@ class TestImports(unittest.TestCase):
 
     def test_parse_main_import(self):
         """Test that parse_main module can be imported."""
-        import parse_main
-        self.assertIsNotNone(parse_main)
-        self.assertTrue(hasattr(parse_main, 'main'))
-        self.assertTrue(hasattr(parse_main, 'Configuration'))
+        import parse_main_new
+        self.assertIsNotNone(parse_main_new)
+        self.assertTrue(hasattr(parse_main_new, 'main'))
+        self.assertTrue(hasattr(parse_main_new, 'Configuration'))
 
     def test_circular_dependency_check(self):
         """
@@ -56,12 +56,12 @@ class TestImports(unittest.TestCase):
         # First way to check - separate imports
         import logger_config
         import parse_helper
-        import parse_main
+        import parse_main_new
         
         # Second way - reload each module separately 
         importlib.reload(logger_config)
         importlib.reload(parse_helper)
-        importlib.reload(parse_main)
+        importlib.reload(parse_main_new)
         
         # This test passes if all imports succeed without circular import errors
 

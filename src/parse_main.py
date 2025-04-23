@@ -15,6 +15,61 @@ Environment variables can be set in a .env file:
 - DOCLING_OUTPUT_FORMAT: Output format (json, md, html)
 - DOCLING_IMAGE_BASE_URL: Base URL for image links in output
 """
+import docling_fix
+
+# Load environment variables first
+from dotenv import load_dotenv
+load_dotenv()
+
+# Standard library imports
+import argparse
+import json
+import logging
+import os
+import sys
+import time
+from pathlib import Path
+from typing import Dict, List, Any, Optional, Union
+
+# Import the logger configuration
+from logger_config import logger, setup_logging
+
+# Import the helper functions
+from parse_helper import process_pdf_document, save_output
+
+# Import the output formatter
+from output_formatter import OutputFormatter
+
+# Import docling library components
+try:
+    from docling.document_converter import DocumentConverter
+    from docling.datamodel.base_models import InputFormat
+    from docling.document_converter import PdfFormatOption
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
+    from element_map_builder import build_element_map
+    # Import the content extractor module
+    from content_extractor import (
+        extract_text_content, 
+        extract_table_content, 
+        extract_image_content, 
+        is_furniture, 
+        find_sibling_text_in_sequence, 
+        get_captions
+    )
+    # Import the metadata extractor module
+    from metadata_extractor import (
+        convert_bbox,
+        extract_page_number,
+        extract_image_metadata,
+        build_metadata_object,
+        extract_full_metadata
+    )
+    # Import the PDFImageExtractor class
+    from pdf_image_extractor import PDFImageExtractor, ImageContentRelationship
+except ImportError as e:
+    logging.error(f"Error importing local modules: {e}")
+    sys.exit(1)
+
 # Fix docling imports
 import docling_fix
 

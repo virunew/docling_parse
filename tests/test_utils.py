@@ -7,6 +7,12 @@ This module provides utility functions and mock setup for testing the docling_pa
 import sys
 from unittest.mock import MagicMock
 from pathlib import Path
+import os
+import tempfile
+import json
+import shutil
+import unittest
+from unittest.mock import patch
 
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -16,51 +22,145 @@ import docling_fix
 
 def setup_mock_docling():
     """
-    Set up mock docling modules to enable testing without actual docling dependencies.
+    Creates mock functions and data for testing docling.
     
-    This function mocks all required docling modules and creates basic classes and functions
-    needed for testing.
+    Returns:
+        tuple: (mock_process_func, mock_document_data, mock_sentences)
     """
-    # Mock the core docling modules
-    sys.modules['docling.document_converter'] = MagicMock()
-    sys.modules['docling.datamodel.base_models'] = MagicMock()
-    sys.modules['docling.datamodel.pipeline_options'] = MagicMock()
-    sys.modules['docling.datamodel.document'] = MagicMock()
-    sys.modules['docling.utils.profiling'] = MagicMock()
-    sys.modules['docling.utils.utils'] = MagicMock()
-    sys.modules['docling.pipeline.base_pipeline'] = MagicMock()
-    sys.modules['docling.pipeline.simple_pipeline'] = MagicMock()
-    sys.modules['docling.pipeline.standard_pdf_pipeline'] = MagicMock()
-    sys.modules['docling.exceptions'] = MagicMock()
+    # Create mock document
+    mock_document = MagicMock()
     
-    # Mock docling_core modules
-    sys.modules['docling_core.types.doc'] = MagicMock()
-    sys.modules['docling_core.types.doc.document'] = MagicMock()
-    sys.modules['docling_core.types.legacy_doc.base'] = MagicMock()
-    sys.modules['docling_core.types.legacy_doc.document'] = MagicMock()
-    sys.modules['docling_core.utils.file'] = MagicMock()
-    sys.modules['docling_core.utils.legacy'] = MagicMock()
+    # Set up metadata
+    mock_document.metadata = {
+        "title": "Test Document",
+        "author": "Test Author",
+        "date": "2023-01-01",
+        "language": "en",
+        "pages": 2
+    }
     
-    # Create a mock DoclingDocument class for testing
-    class MockDoclingDocument:
-        def __init__(self, name="test_document"):
-            self.name = name
-            self.texts = []
-            self.tables = []
-            self.pictures = []
-            self.pages = []
+    # Create pages
+    page1 = MagicMock()
+    page1.page_number = 1
+    page1.width = 612
+    page1.height = 792
+    
+    page2 = MagicMock()
+    page2.page_number = 2
+    page2.width = 612
+    page2.height = 792
+    
+    # Create segments for page 1
+    segment1 = MagicMock()
+    segment1.id = "seg1"
+    segment1.text = "This is the first segment."
+    segment1.page_number = 1
+    segment1.bbox = (10, 10, 200, 40)
+    segment1.type = "text"
+    
+    segment2 = MagicMock()
+    segment2.id = "seg2"
+    segment2.text = "This is the second segment."
+    segment2.page_number = 1
+    segment2.bbox = (10, 50, 200, 80)
+    segment2.type = "text"
+    
+    # Create segments for page 2
+    segment3 = MagicMock()
+    segment3.id = "seg3"
+    segment3.text = "This is a segment on page 2."
+    segment3.page_number = 2
+    segment3.bbox = (10, 10, 200, 40)
+    segment3.type = "text"
+    
+    # Create images
+    image1 = MagicMock()
+    image1.id = "img1"
+    image1.page_number = 1
+    image1.bbox = (250, 10, 450, 200)
+    image1.caption = "Test Image 1"
+    image1.path = "images/test_image1.png"
+    
+    # Create tables
+    table1 = MagicMock()
+    table1.id = "table1"
+    table1.page_number = 2
+    table1.bbox = (50, 100, 400, 300)
+    table1.data = [["Header 1", "Header 2"], ["Data 1", "Data 2"]]
+    table1.caption = "Test Table 1"
+    
+    # Assign segments and images to pages
+    page1.segments = [segment1, segment2]
+    page1.images = [image1]
+    page1.tables = []
+    
+    page2.segments = [segment3]
+    page2.images = []
+    page2.tables = [table1]
+    
+    # Add pages to document
+    mock_document.pages = [page1, page2]
+    
+    # Add sentences
+    mock_document.sentences = [
+        MagicMock(id="sent1", text="This is the first segment.", segments=["seg1"]),
+        MagicMock(id="sent2", text="This is the second segment.", segments=["seg2"]),
+        MagicMock(id="sent3", text="This is a segment on page 2.", segments=["seg3"])
+    ]
+    
+    # Create mock processor
+    mock_processor = MagicMock()
+    mock_processor.process.return_value = mock_document
+    
+    return mock_document, mock_processor
+
+def setup_temp_dir():
+    """
+    Creates a temporary directory for testing.
+    
+    Returns:
+        str: Path to the temporary directory
+    """
+    return Path(tempfile.mkdtemp())
+
+def cleanup_temp_dir(temp_dir):
+    """
+    Cleans up the temporary directory.
+    
+    Args:
+        temp_dir: Path to the temporary directory
+    """
+    if os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir)
         
-        def export_to_dict(self):
-            return {
-                "name": self.name,
-                "texts": self.texts,
-                "tables": self.tables,
-                "pictures": self.pictures,
-                "pages": self.pages
-            }
+def write_mock_config(config_path, output_format="json", output_file=None):
+    """
+    Write a mock configuration file.
     
-    # Add the mock DoclingDocument to the mocked module
-    sys.modules['docling_core.types.doc'].DoclingDocument = MockDoclingDocument
+    Args:
+        config_path: Path to write the configuration file
+        output_format: Format for output
+        output_file: Output file path
+        
+    Returns:
+        str: Path to the configuration file
+    """
+    config = {
+        "input": {
+            "files": ["test.pdf"]
+        },
+        "output": {
+            "format": output_format
+        }
+    }
+    
+    if output_file:
+        config["output"]["file"] = output_file
+        
+    with open(config_path, 'w') as f:
+        json.dump(config, f)
+        
+    return config_path
 
 # Automatically set up the mocks when the module is imported
 setup_mock_docling() 

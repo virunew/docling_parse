@@ -14,26 +14,30 @@ from unittest.mock import patch, MagicMock
 import tempfile
 import subprocess
 
+# Import docling fix helper
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+import docling_fix
+
 # Import test utilities for mock setup
-from tests.test_utils import setup_mock_docling
+from tests.test_utils import setup_mock_docling, setup_temp_dir, cleanup_temp_dir
 
 # Add the src directory to the path
-import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Import necessary modules for testing
 from src.parse_helper import process_pdf_document, save_output
 from src.image_extraction_module import process_pdf_for_images
+from src.parse_main import main, Configuration, parse_arguments
 
 # Add src directory to path for module imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 # Import the OutputFormatter class for testing formatted output
-from output_formatter import OutputFormatter
+from src.output_formatter import OutputFormatter
 
 # Import the SQLFormatter class for testing SQL output
 from src.sql_formatter import SQLFormatter
-
 
 class TestDocumentParsingIntegration(unittest.TestCase):
     """Integration tests for the document parsing process."""
@@ -256,6 +260,9 @@ class TestIntegration(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.output_dir = Path(self.temp_dir.name)
         
+        # Create a mock document for testing
+        self.mock_document, self.mock_processor = setup_mock_docling()
+    
     def tearDown(self):
         """Clean up test-specific fixtures."""
         if hasattr(self, 'temp_dir'):
@@ -474,106 +481,95 @@ class TestIntegration(unittest.TestCase):
                 content = f.read()
                 self.assertGreater(len(content), 0)
 
-    @patch('parse_main.process_pdf_document')
-    def test_sql_output_format(self, mock_process_pdf):
-        """Test that SQL output format works correctly."""
-        # Configure the mock to return our test document
-        mock_process_pdf.return_value = self.mock_document
+    @patch('src.parse_main.process_pdf_document')
+    def test_sql_output_format(self, mock_process):
+        """Test that the main function correctly outputs SQL format."""
+        # Setup the mock to return our test document
+        mock_process.return_value = self.mock_document
         
-        # Create a mock for sys.argv to simulate command line arguments
+        # Prepare arguments for SQL output
         test_args = [
-            'parse_main.py',
-            '--pdf_path', 'test.pdf',
-            '--output_dir', self.temp_dir,
-            '--format', 'sql'
+            '--input', 'dummy.pdf',
+            '--format', 'sql',
+            '--output', str(self.output_dir / "output.sql")
         ]
         
-        with patch('sys.argv', test_args):
-            # Run the main function
-            with patch('sys.exit') as mock_exit:
-                main()
-                # Verify sys.exit was not called with an error
-                mock_exit.assert_not_called()
+        # Run the main function with the test arguments
+        with patch('sys.argv', ['parse_main.py'] + test_args):
+            main()
         
-        # Check that an SQL-formatted output file was created
-        expected_filename = os.path.join(self.temp_dir, "test_document.json")
-        self.assertTrue(os.path.exists(expected_filename))
+        # Check that the output file was created
+        output_file = self.output_dir / "output.sql"
+        self.assertTrue(output_file.exists(), f"Output file {output_file} was not created")
         
-        # Verify the content of the output file
-        with open(expected_filename, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            
-        # Check the structure of the output
-        self.assertIn("source", data)
-        self.assertIn("furniture", data)
-        self.assertIn("chunks", data)
+        # Read the output file and check it has SQL content
+        with open(output_file, 'r') as f:
+            sql_content = f.read()
         
-        # Verify source metadata
-        self.assertEqual(data["source"]["file_name"], "test_document.pdf")
-        self.assertEqual(data["source"]["title"], "Test Document")
+        # Verify SQL structure (basic checks)
+        self.assertIn("CREATE TABLE", sql_content, "SQL output should contain CREATE TABLE statements")
+        self.assertIn("INSERT INTO", sql_content, "SQL output should contain INSERT INTO statements")
         
-        # Verify that we have chunks
-        self.assertTrue(len(data["chunks"]) > 0)
+        # Verify document metadata in SQL
+        self.assertIn("Test Document", sql_content, "Document title should be in SQL output")
+        self.assertIn("Test Author", sql_content, "Document author should be in SQL output")
 
-    @patch('parse_main.process_pdf_document')
-    def test_integration_with_configuration(self, mock_process_pdf):
-        """Test integration of Configuration with SQLFormatter."""
-        # Configure the mock to return our test document
-        mock_process_pdf.return_value = self.mock_document
+    def test_sql_formatter_direct(self):
+        """Test SQLFormatter directly to ensure it correctly formats document to SQL."""
+        # Create a formatter instance
+        formatter = SQLFormatter()
         
-        # Create and configure a Configuration object
-        config = Configuration()
-        config.pdf_path = "test.pdf"
-        config.output_dir = self.temp_dir
-        config.format = "sql"
+        # Format the document
+        sql_output = formatter.format(self.mock_document)
         
-        # Mock parse_arguments to return a namespace with our config values
-        mock_args = MagicMock()
-        for attr in vars(config):
-            setattr(mock_args, attr, getattr(config, attr))
-            
-        with patch('parse_main.parse_arguments', return_value=mock_args):
-            # Run the main function
-            with patch('sys.exit') as mock_exit:
-                main()
-                # Verify sys.exit was not called with an error
-                mock_exit.assert_not_called()
+        # Check the formatted output
+        self.assertIsInstance(sql_output, str, "Formatter should return a string")
+        self.assertIn("CREATE TABLE", sql_output, "SQL output should contain CREATE TABLE statements")
+        self.assertIn("INSERT INTO", sql_output, "SQL output should contain INSERT INTO statements")
         
-        # Check that an SQL-formatted output file was created
-        expected_filename = os.path.join(self.temp_dir, "test_document.json")
-        self.assertTrue(os.path.exists(expected_filename))
+        # Verify tables for document metadata, pages, segments, and other structures
+        self.assertIn("CREATE TABLE document_metadata", sql_output)
+        self.assertIn("CREATE TABLE pages", sql_output)
+        self.assertIn("CREATE TABLE segments", sql_output)
+        
+        # Test saving the output to a file
+        output_file = self.output_dir / "direct_output.sql"
+        formatter.save(sql_output, output_file)
+        
+        # Verify the file exists and contains the expected content
+        self.assertTrue(output_file.exists(), f"Output file {output_file} was not created")
+        with open(output_file, 'r') as f:
+            saved_content = f.read()
+        self.assertEqual(sql_output, saved_content, "Saved content should match formatted output")
 
-    def test_formatter_direct_integration(self):
-        """Test direct integration between process_pdf_document and SQLFormatter."""
-        # This test simulates the flow in main() but with direct function calls
+    @patch('src.parse_main.process_pdf_document')
+    def test_configuration_with_sql_formatter(self, mock_process):
+        """Test the integration of Configuration class with SQLFormatter."""
+        # Setup the mock to return our test document
+        mock_process.return_value = self.mock_document
         
-        # First, mock the process_pdf_document function
-        with patch('src.parse_helper.process_pdf_document') as mock_process:
-            # Configure the mock to return our test document
-            mock_process.return_value = self.mock_document
-            
-            # Create an SQL formatter
-            formatter = SQLFormatter()
-            
-            # Format the document
-            formatted_data = formatter.format_as_sql_json(self.mock_document)
-            
-            # Verify the structure
-            self.assertIn("source", formatted_data)
-            self.assertIn("furniture", formatted_data)
-            self.assertIn("chunks", formatted_data)
-            
-            # Save the output
-            output_file = formatter.save_formatted_output(self.mock_document, self.temp_dir)
-            
-            # Verify the file exists
-            self.assertTrue(os.path.exists(output_file))
-            
-            # Verify the content
-            with open(output_file, 'r', encoding='utf-8') as f:
-                saved_data = json.load(f)
-            
-            self.assertEqual(formatted_data, saved_data)
+        # Create a configuration
+        output_path = self.output_dir / "config_output.sql"
+        config = Configuration(
+            input_file="dummy.pdf",
+            format="sql",
+            output_file=str(output_path)
+        )
+        
+        # Run the main function with the configuration
+        main(configuration=config)
+        
+        # Verify the output file exists
+        self.assertTrue(output_path.exists(), f"Output file {output_path} was not created")
+        
+        # Read the output file and check it has SQL content
+        with open(output_path, 'r') as f:
+            sql_content = f.read()
+        
+        # Verify SQL content
+        self.assertIn("CREATE TABLE", sql_content)
+        self.assertIn("INSERT INTO", sql_content)
+        self.assertIn("Test Document", sql_content)  # Check document title is included
 
 
 class TestOutputFormatterIntegration(unittest.TestCase):
@@ -789,6 +785,188 @@ class TestOutputFormatterIntegration(unittest.TestCase):
         for image in images:
             if 'url' in image and image['url']:
                 self.assertTrue(image['url'].startswith('https://example.com/images'))
+
+
+class TestSQLFormatterIntegration(unittest.TestCase):
+    """Integration tests for the SQLFormatter with sample document data."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        # Create a temporary directory for output
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.output_dir = Path(self.temp_dir.name)
+        
+        # Create a sample document for testing
+        self.test_document = MagicMock()
+        self.test_document.name = "test_document"
+        self.test_document.metadata = {
+            "title": "Test Document",
+            "author": "Test Author",
+            "keywords": ["test", "document", "sql"],
+            "created": "2023-01-01"
+        }
+        
+        # Mock pages content
+        pages = []
+        
+        # Create page 1 with text and image
+        page1 = MagicMock()
+        page1.page_number = 1
+        page1.segments = [
+            MagicMock(text="This is paragraph 1."),
+            MagicMock(text="This is paragraph 2.")
+        ]
+        page1.images = [MagicMock(
+            id="img1",
+            path="images/img1.png",
+            caption="Test Image",
+            width=100,
+            height=100
+        )]
+        pages.append(page1)
+        
+        # Create page 2 with a table
+        page2 = MagicMock()
+        page2.page_number = 2
+        page2.segments = [MagicMock(text="This is page 2 text.")]
+        
+        # Mock table with cells
+        table_mock = MagicMock()
+        table_mock.caption = "Test Table"
+        table_mock.cells = [
+            {"row": 0, "col": 0, "text": "Header 1"},
+            {"row": 0, "col": 1, "text": "Header 2"},
+            {"row": 1, "col": 0, "text": "Data 1"},
+            {"row": 1, "col": 1, "text": "Data 2"}
+        ]
+        page2.tables = [table_mock]
+        pages.append(page2)
+        
+        # Add pages to document
+        self.test_document.pages = pages
+        
+        # Import SQLFormatter here to ensure we're testing the right module
+        from src.sql_formatter import SQLFormatter
+        self.formatter = SQLFormatter()
+    
+    def tearDown(self):
+        """Clean up test fixtures."""
+        self.temp_dir.cleanup()
+    
+    def test_format_as_sql_json(self):
+        """Test the basic SQL JSON formatting"""
+        # Format the document
+        formatted_data = self.formatter.format_as_sql_json(self.test_document)
+        
+        # Verify basic structure
+        self.assertIn("source", formatted_data)
+        self.assertIn("furniture", formatted_data)
+        self.assertIn("chunks", formatted_data)
+        
+        # Verify source information
+        self.assertEqual(formatted_data["source"]["file_name"], "test_document.pdf")
+        self.assertEqual(formatted_data["source"]["title"], "Test Document")
+        
+        # Verify furniture contains metadata
+        self.assertIn("title", formatted_data["furniture"])
+        self.assertEqual(formatted_data["furniture"]["title"], "Test Document")
+        
+        # Verify chunks content
+        chunks = formatted_data["chunks"]
+        self.assertTrue(len(chunks) > 0)
+        
+        # Check that paragraphs are in chunks
+        paragraph_chunks = [c for c in chunks if "This is paragraph" in c.get("text", "")]
+        self.assertTrue(len(paragraph_chunks) > 0)
+        
+        # Check that each chunk has required fields
+        for chunk in chunks:
+            self.assertIn("text", chunk)
+            self.assertIn("start_page", chunk)
+            self.assertIn("file_path", chunk)
+    
+    def test_save_sql_output(self):
+        """Test saving SQL-formatted output to a file"""
+        # Format and save the document
+        output_file = self.formatter.save_formatted_output(self.test_document, self.output_dir)
+        
+        # Verify the file exists
+        self.assertTrue(output_file.exists())
+        
+        # Verify file extension
+        self.assertTrue(output_file.name.endswith('.json'))
+        
+        # Check content
+        with open(output_file, 'r', encoding='utf-8') as f:
+            saved_data = json.load(f)
+        
+        # Verify structure
+        self.assertIn("source", saved_data)
+        self.assertIn("furniture", saved_data)
+        self.assertIn("chunks", saved_data)
+    
+    @patch('src.parse_helper.process_pdf_document')
+    def test_integration_with_parse_main(self, mock_process_pdf):
+        """Test integration with parse_main.py"""
+        # Configure the mock to return our test document
+        mock_process_pdf.return_value = self.test_document
+        
+        # Run parse_main with SQL format
+        cmd = [
+            sys.executable,
+            os.path.join(os.path.dirname(__file__), '../src/parse_main.py'),
+            '--pdf_path', 'test.pdf',
+            '--output_dir', str(self.output_dir),
+            '--output_format', 'sql'
+        ]
+        
+        # Use a subprocess to run the command
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            
+            # Check for successful execution
+            self.assertEqual(result.returncode, 0, f"Command failed with: {result.stderr}")
+            
+            # Check if output file exists
+            output_file = self.output_dir / "test_document.json"
+            self.assertTrue(output_file.exists(), f"Output file not found: {output_file}")
+            
+            # Verify content
+            with open(output_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            self.assertIn("source", data)
+            self.assertIn("furniture", data)
+            self.assertIn("chunks", data)
+            
+        except subprocess.TimeoutExpired:
+            self.fail("Command timed out")
+    
+    def test_structure_and_fields(self):
+        """Test that SQL formatter includes all required fields"""
+        # Format the document
+        formatted_data = self.formatter.format_as_sql_json(self.test_document)
+        
+        # Check source fields
+        source = formatted_data["source"]
+        self.assertIn("file_name", source)
+        self.assertIn("file_path", source)
+        self.assertIn("title", source)
+        self.assertIn("date", source)
+        
+        # Check furniture fields
+        furniture = formatted_data["furniture"]
+        self.assertIn("title", furniture)
+        self.assertIn("date", furniture)
+        self.assertIn("file_path", furniture)
+        
+        # Check chunk fields
+        for chunk in formatted_data["chunks"]:
+            self.assertIn("text", chunk)
+            self.assertIn("start_page", chunk)
+            self.assertIn("file_path", chunk)
+            self.assertIn("date", chunk)
+            self.assertIn("title", chunk)
 
 
 if __name__ == "__main__":

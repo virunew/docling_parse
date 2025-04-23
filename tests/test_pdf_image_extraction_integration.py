@@ -101,10 +101,10 @@ process_pdf_document_mock.return_value = MagicMock(
 )
 
 # Now import parse_main with everything mocked
-import parse_main
+import parse_main_new
 
 # Override the process_pdf_document in parse_main with our mock
-parse_main.process_pdf_document = process_pdf_document_mock
+parse_main_new.process_pdf_document = process_pdf_document_mock
 
 # Configure test logging
 logging.basicConfig(level=logging.INFO)
@@ -143,7 +143,7 @@ class TestPDFImageExtractionIntegration:
             pytest.skip("No test PDF file available")
             
         # Process the PDF using parse_main.process_pdf_document
-        docling_document = parse_main.process_pdf_document(
+        docling_document = parse_main_new.process_pdf_document(
             self.test_pdf_path, 
             self.output_dir
         )
@@ -168,7 +168,7 @@ class TestPDFImageExtractionIntegration:
             pytest.skip("No test PDF file available")
             
         # Process the PDF using parse_main.process_pdf_document
-        docling_document = parse_main.process_pdf_document(
+        docling_document = parse_main_new.process_pdf_document(
             self.test_pdf_path, 
             self.output_dir
         )
@@ -254,7 +254,7 @@ class TestPDFImageExtractionIntegration:
             pytest.skip("No test PDF file available")
             
         # Process the PDF using parse_main.process_pdf_document
-        docling_document = parse_main.process_pdf_document(
+        docling_document = parse_main_new.process_pdf_document(
             self.test_pdf_path, 
             self.output_dir
         )
@@ -335,7 +335,7 @@ class TestPDFImageExtractionIntegration:
                 # Mock the process_pdf_document function to return our mock_document
                 with patch('parse_main.process_pdf_document', return_value=mock_document):
                     # Process the PDF
-                    result_doc = parse_main.process_pdf_document(
+                    result_doc = parse_main_new.process_pdf_document(
                         temp_file.name,
                         self.output_dir
                     )
@@ -414,7 +414,7 @@ class TestPDFImageExtractionIntegration:
                                 mock_save.return_value = mock_output_path
                                 
                                 # Save the output
-                                output_file = parse_main.save_output(mock_document, self.output_dir)
+                                output_file = parse_main_new.save_output(mock_document, self.output_dir)
                                 
                                 # Verify the output file
                                 assert output_file == mock_output_path

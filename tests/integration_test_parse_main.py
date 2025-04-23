@@ -130,11 +130,11 @@ sys.modules['pdf_image_extractor'].PDFImageExtractor = PDFImageExtractor
 sys.modules['pdf_image_extractor'].ImageContentRelationship = ImageContentRelationship
 
 # Now import parse_main with everything mocked
-import parse_main
+import parse_main_new
 
 # Override imported functions in parse_main
-parse_main.process_pdf_document = process_pdf_document
-parse_main.save_output = save_output
+parse_main_new.process_pdf_document = process_pdf_document
+parse_main_new.save_output = save_output
 
 # Configure test logging
 logging.basicConfig(level=logging.INFO)
@@ -219,7 +219,7 @@ class TestParseMainIntegration:
                                 f.write('{"test": "data"}')
                             
                             # Call the main function
-                            exit_code = parse_main.main()
+                            exit_code = parse_main_new.main()
                             
                             # Verify the result
                             assert exit_code == 0
@@ -250,7 +250,7 @@ class TestParseMainIntegration:
                 # Mock the process_pdf_document function to raise an exception
                 with patch('parse_main.process_pdf_document', side_effect=Exception("Test error")):
                     # Call the main function
-                    exit_code = parse_main.main()
+                    exit_code = parse_main_new.main()
                     
                     # Verify the result
                     assert exit_code == 1
@@ -268,24 +268,24 @@ class TestParseMainIntegration:
         non_existent_pdf = Path(self.output_dir) / "non_existent.pdf"
         
         # Temporarily override the validate method to force a validation error
-        original_validate = parse_main.Configuration.validate
+        original_validate = parse_main_new.Configuration.validate
         def mock_validate(self):
             # Return a validation error
             return ["PDF file path is required but not provided."]
         
         try:
             # Apply the mock validate method
-            parse_main.Configuration.validate = mock_validate
+            parse_main_new.Configuration.validate = mock_validate
             
             with patch('sys.argv', test_args):
                 # Call the main function
-                exit_code = parse_main.main()
+                exit_code = parse_main_new.main()
                 
                 # Verify the result indicates validation failure
                 assert exit_code == 1
         finally:
             # Restore the original validate method
-            parse_main.Configuration.validate = original_validate
+            parse_main_new.Configuration.validate = original_validate
     
     @pytest.mark.skipif(not Path('../test_data').exists() or not list(Path('../test_data').glob('*.pdf')), 
                        reason="No test PDF files found in test_data directory")
@@ -335,7 +335,7 @@ class TestParseMainIntegration:
                 # Run with the mocked command-line arguments
                 with patch('sys.argv', test_args):
                     # Call the main function
-                    exit_code = parse_main.main()
+                    exit_code = parse_main_new.main()
                     
                     # Verify the result
                     assert exit_code == 0
@@ -368,7 +368,7 @@ class TestParseMainIntegration:
             "DOCLING_CONFIG_FILE": "env_config.json"
         }):
             # Create a configuration object
-            config = parse_main.Configuration()
+            config = parse_main_new.Configuration()
             
             # Verify environment variables were loaded
             assert config.pdf_path == "env_test.pdf"
@@ -381,7 +381,7 @@ class TestParseMainIntegration:
             
             with patch('sys.argv', test_args):
                 # Parse arguments
-                args = parse_main.parse_arguments()
+                args = parse_main_new.parse_arguments()
                 
                 # Update configuration from args (should not change)
                 config.update_from_args(args)
@@ -411,10 +411,10 @@ class TestParseMainIntegration:
         
         with patch('sys.argv', test_args):
             # Parse the arguments
-            args = parse_main.parse_arguments()
+            args = parse_main_new.parse_arguments()
             
             # Create a configuration object and update it from args
-            config = parse_main.Configuration()
+            config = parse_main_new.Configuration()
             config.update_from_args(args)
             
             # Check that all values were properly set
@@ -490,7 +490,7 @@ class TestParseMainIntegration:
                                 f.write('content_type,page_number,content,level,metadata\nparagraph,1,"Test paragraph",,\ntable,1,"Test Table",,\ntable_cell,1,"Header 1",,\ntable_cell,1,"Header 2",,')
                             
                             # Call the main function
-                            exit_code = parse_main.main()
+                            exit_code = parse_main_new.main()
                             
                             # Check that the function succeeded
                             assert exit_code == 0
