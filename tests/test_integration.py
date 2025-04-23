@@ -11,6 +11,8 @@ import json
 import shutil
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+import tempfile
+import subprocess
 
 # Import test utilities for mock setup
 from tests.test_utils import setup_mock_docling
@@ -22,6 +24,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Import necessary modules for testing
 from src.parse_helper import process_pdf_document, save_output
 from src.image_extraction_module import process_pdf_for_images
+
+# Add src directory to path for module imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+
+# Import the OutputFormatter class for testing formatted output
+from output_formatter import OutputFormatter
 
 
 class TestDocumentParsingIntegration(unittest.TestCase):
@@ -202,6 +210,481 @@ class TestDocumentParsingIntegration(unittest.TestCase):
         self.assertEqual(data["name"], "test_document")
         self.assertEqual(data["content"], "Test content")
         self.assertIn("images_data", data)
+
+
+class TestIntegration(unittest.TestCase):
+    """Integration tests for the PDF parsing and formatting workflow."""
+    
+    @classmethod
+    def setUpClass(cls):
+        """Set up test fixtures that are reused across tests."""
+        # Check if there's a sample PDF for testing
+        cls.sample_pdf_path = None
+        
+        # First, check in tests/samples
+        sample_dir = Path(os.path.dirname(__file__)) / 'samples'
+        if sample_dir.exists():
+            for pdf_file in sample_dir.glob('*.pdf'):
+                cls.sample_pdf_path = pdf_file
+                break
+        
+        # If no sample found, check in project root
+        if cls.sample_pdf_path is None:
+            project_root = Path(os.path.dirname(__file__)).parent
+            for pdf_file in project_root.glob('*.pdf'):
+                cls.sample_pdf_path = pdf_file
+                break
+            
+        # Skip tests if no sample found
+        if cls.sample_pdf_path is None:
+            cls.skip_tests = True
+            cls.skip_reason = "No sample PDF file found for testing"
+        else:
+            cls.skip_tests = False
+            cls.skip_reason = None
+    
+    def setUp(self):
+        """Set up test-specific fixtures."""
+        # Skip if no sample PDF
+        if self.skip_tests:
+            self.skipTest(self.skip_reason)
+            
+        # Create a temporary directory for outputs
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.output_dir = Path(self.temp_dir.name)
+        
+    def tearDown(self):
+        """Clean up test-specific fixtures."""
+        if hasattr(self, 'temp_dir'):
+            self.temp_dir.cleanup()
+    
+    def test_parse_main_json_output(self):
+        """Test parsing a PDF and generating JSON output."""
+        # Skip if no sample PDF
+        if self.skip_tests:
+            self.skipTest(self.skip_reason)
+            
+        # Run the parse_main.py script with JSON output format
+        cmd = [
+            sys.executable,
+            os.path.join(os.path.dirname(__file__), '../src/parse_main.py'),
+            '--pdf_path', str(self.sample_pdf_path),
+            '--output_dir', str(self.output_dir),
+            '--output_format', 'json'
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        # Check if the process ran successfully
+        self.assertEqual(result.returncode, 0, f"parse_main.py failed with error: {result.stderr}")
+        
+        # Check if the standard output file exists
+        pdf_name = self.sample_pdf_path.stem
+        standard_output_file = self.output_dir / f"{pdf_name}.json"
+        self.assertTrue(standard_output_file.exists(), f"Standard output file not found: {standard_output_file}")
+        
+        # Check if the simplified JSON output file exists
+        simplified_output_file = self.output_dir / f"{pdf_name}_simplified.json"
+        self.assertTrue(simplified_output_file.exists(), f"Simplified JSON output file not found: {simplified_output_file}")
+        
+        # Verify the simplified JSON output
+        try:
+            with open(simplified_output_file, 'r', encoding='utf-8') as f:
+                simplified_data = json.load(f)
+                
+            # Check the basic structure
+            self.assertIn('metadata', simplified_data, "Missing 'metadata' in simplified output")
+            self.assertIn('content', simplified_data, "Missing 'content' in simplified output")
+        except json.JSONDecodeError as e:
+            self.fail(f"Failed to parse simplified JSON output: {e}")
+    
+    def test_parse_main_markdown_output(self):
+        """Test parsing a PDF and generating Markdown output."""
+        # Skip if no sample PDF
+        if self.skip_tests:
+            self.skipTest(self.skip_reason)
+            
+        # Run the parse_main.py script with Markdown output format
+        cmd = [
+            sys.executable,
+            os.path.join(os.path.dirname(__file__), '../src/parse_main.py'),
+            '--pdf_path', str(self.sample_pdf_path),
+            '--output_dir', str(self.output_dir),
+            '--output_format', 'md'
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        # Check if the process ran successfully
+        self.assertEqual(result.returncode, 0, f"parse_main.py failed with error: {result.stderr}")
+        
+        # Check if the Markdown output file exists
+        pdf_name = self.sample_pdf_path.stem
+        markdown_output_file = self.output_dir / f"{pdf_name}.md"
+        self.assertTrue(markdown_output_file.exists(), f"Markdown output file not found: {markdown_output_file}")
+        
+        # Verify the Markdown output
+        with open(markdown_output_file, 'r', encoding='utf-8') as f:
+            markdown_content = f.read()
+            
+        # Check for basic Markdown elements
+        self.assertIn('#', markdown_content, "Missing heading in Markdown output")
+        self.assertGreater(len(markdown_content), 0, "Markdown output is empty")
+    
+    def test_parse_main_html_output(self):
+        """Test parsing a PDF and generating HTML output."""
+        # Skip if no sample PDF
+        if self.skip_tests:
+            self.skipTest(self.skip_reason)
+            
+        # Run the parse_main.py script with HTML output format
+        cmd = [
+            sys.executable,
+            os.path.join(os.path.dirname(__file__), '../src/parse_main.py'),
+            '--pdf_path', str(self.sample_pdf_path),
+            '--output_dir', str(self.output_dir),
+            '--output_format', 'html'
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        # Check if the process ran successfully
+        self.assertEqual(result.returncode, 0, f"parse_main.py failed with error: {result.stderr}")
+        
+        # Check if the HTML output file exists
+        pdf_name = self.sample_pdf_path.stem
+        html_output_file = self.output_dir / f"{pdf_name}.html"
+        self.assertTrue(html_output_file.exists(), f"HTML output file not found: {html_output_file}")
+        
+        # Verify the HTML output
+        with open(html_output_file, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+            
+        # Check for basic HTML elements
+        self.assertIn('<!DOCTYPE html>', html_content, "Missing doctype in HTML output")
+        self.assertIn('<html>', html_content, "Missing html tag in HTML output")
+        self.assertIn('<body>', html_content, "Missing body tag in HTML output")
+        self.assertGreater(len(html_content), 0, "HTML output is empty")
+    
+    def test_parse_main_custom_options(self):
+        """Test parsing a PDF with custom formatting options."""
+        # Skip if no sample PDF
+        if self.skip_tests:
+            self.skipTest(self.skip_reason)
+            
+        # Run the parse_main.py script with custom options
+        cmd = [
+            sys.executable,
+            os.path.join(os.path.dirname(__file__), '../src/parse_main.py'),
+            '--pdf_path', str(self.sample_pdf_path),
+            '--output_dir', str(self.output_dir),
+            '--output_format', 'json',
+            '--no_metadata',
+            '--no_page_breaks',
+            '--image_base_url', 'https://example.com/images'
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        # Check if the process ran successfully
+        self.assertEqual(result.returncode, 0, f"parse_main.py failed with error: {result.stderr}")
+        
+        # Check if the simplified JSON output file exists
+        pdf_name = self.sample_pdf_path.stem
+        simplified_output_file = self.output_dir / f"{pdf_name}_simplified.json"
+        self.assertTrue(simplified_output_file.exists(), f"Simplified JSON output file not found: {simplified_output_file}")
+        
+        # Verify the simplified JSON output
+        try:
+            with open(simplified_output_file, 'r', encoding='utf-8') as f:
+                simplified_data = json.load(f)
+            
+            # Check impact of custom options
+            # Should still have metadata field but it may be empty or minimal
+            self.assertIn('metadata', simplified_data)
+            
+            # Check content for page breaks (should not be present)
+            page_breaks = [item for item in simplified_data.get('content', []) if item.get('type') == 'page_break']
+            self.assertEqual(len(page_breaks), 0, "Page breaks should not be present")
+            
+            # Check image URLs if there are any images
+            images = [item for item in simplified_data.get('content', []) if item.get('type') == 'image']
+            for image in images:
+                if 'url' in image and image['url']:
+                    self.assertTrue(image['url'].startswith('https://example.com/images'), 
+                                   f"Image URL doesn't use custom base URL: {image['url']}")
+        except json.JSONDecodeError as e:
+            self.fail(f"Failed to parse simplified JSON output: {e}")
+    
+    def test_direct_integration_with_formatter(self):
+        """Test direct integration between parse_helper output and OutputFormatter."""
+        # Skip if no sample PDF
+        if self.skip_tests:
+            self.skipTest(self.skip_reason)
+            
+        # Run the parse_main.py script to generate standard JSON output
+        cmd = [
+            sys.executable,
+            os.path.join(os.path.dirname(__file__), '../src/parse_main.py'),
+            '--pdf_path', str(self.sample_pdf_path),
+            '--output_dir', str(self.output_dir)
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        # Check if the process ran successfully
+        self.assertEqual(result.returncode, 0, f"parse_main.py failed with error: {result.stderr}")
+        
+        # Load the standard output JSON
+        pdf_name = self.sample_pdf_path.stem
+        standard_output_file = self.output_dir / f"{pdf_name}.json"
+        self.assertTrue(standard_output_file.exists())
+        
+        with open(standard_output_file, 'r', encoding='utf-8') as f:
+            document_data = json.load(f)
+        
+        # Now use the OutputFormatter directly
+        formatter = OutputFormatter()
+        
+        # Test all output formats
+        for format_type in ['json', 'md', 'html']:
+            # Save formatted output
+            output_file = formatter.save_formatted_output(
+                document_data,
+                self.output_dir,
+                format_type
+            )
+            
+            # Check if the file exists
+            self.assertTrue(output_file.exists())
+            
+            # Check file extension matches format
+            if format_type == 'json':
+                self.assertTrue(output_file.name.endswith('_simplified.json'))
+            elif format_type == 'md':
+                self.assertTrue(output_file.name.endswith('.md'))
+            elif format_type == 'html':
+                self.assertTrue(output_file.name.endswith('.html'))
+            
+            # Check file content is not empty
+            with open(output_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                self.assertGreater(len(content), 0)
+
+
+class TestOutputFormatterIntegration(unittest.TestCase):
+    """Integration tests for the OutputFormatter with sample JSON data."""
+    
+    def setUp(self):
+        """Set up test fixtures."""
+        # Create a temporary directory for output
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.output_dir = Path(self.temp_dir.name)
+        
+        # Create a sample document JSON for testing
+        self.test_document = {
+            "name": "test_document",
+            "metadata": {
+                "title": "Test Document",
+                "author": "Test Author",
+                "created": "2023-01-01"
+            },
+            "pages": [
+                {
+                    "page_number": 1,
+                    "segments": [
+                        {"text": "This is a paragraph on page 1."},
+                        {"text": "This is another paragraph on page 1."}
+                    ],
+                    "tables": [
+                        {
+                            "cells": [
+                                {"row": 0, "col": 0, "text": "Header 1", "rowspan": 1, "colspan": 1},
+                                {"row": 0, "col": 1, "text": "Header 2", "rowspan": 1, "colspan": 1},
+                                {"row": 1, "col": 0, "text": "Data 1", "rowspan": 1, "colspan": 1},
+                                {"row": 1, "col": 1, "text": "Data 2", "rowspan": 1, "colspan": 1}
+                            ],
+                            "metadata": {
+                                "caption": "Test Table",
+                                "page_number": 1
+                            }
+                        }
+                    ],
+                    "pictures": [
+                        {
+                            "image_path": "images/test_image.png",
+                            "metadata": {
+                                "caption": "Test Image",
+                                "page_number": 1,
+                                "width": 100,
+                                "height": 100
+                            }
+                        }
+                    ]
+                },
+                {
+                    "page_number": 2,
+                    "segments": [
+                        {"text": "This is a paragraph on page 2."}
+                    ]
+                }
+            ],
+            "images_data": {
+                "images": [
+                    {
+                        "path": "images/test_image.png",
+                        "caption": "Test Image from images_data",
+                        "page_number": 1,
+                        "width": 100,
+                        "height": 100
+                    }
+                ]
+            }
+        }
+        
+        # Save the test document to a JSON file
+        self.test_json_path = self.output_dir / "test_document.json"
+        with open(self.test_json_path, 'w', encoding='utf-8') as f:
+            json.dump(self.test_document, f, indent=2)
+    
+    def tearDown(self):
+        """Clean up test fixtures."""
+        self.temp_dir.cleanup()
+    
+    def test_format_as_json(self):
+        """Test formatting document as JSON."""
+        # Create formatter with default config
+        formatter = OutputFormatter()
+        
+        # Format the document as JSON
+        formatted_output_file = formatter.save_formatted_output(
+            self.test_document,
+            self.output_dir,
+            'json'
+        )
+        
+        # Check if file exists
+        self.assertTrue(formatted_output_file.exists())
+        
+        # Check file extension
+        self.assertTrue(formatted_output_file.name.endswith('_simplified.json'))
+        
+        # Check file content
+        with open(formatted_output_file, 'r', encoding='utf-8') as f:
+            formatted_data = json.load(f)
+            
+        # Verify structure
+        self.assertIn('metadata', formatted_data)
+        self.assertIn('content', formatted_data)
+        self.assertIn('images', formatted_data)
+        
+        # Verify content
+        self.assertEqual(formatted_data['metadata']['name'], 'test_document')
+        self.assertEqual(formatted_data['metadata']['title'], 'Test Document')
+        
+        # Count content items (should include all segments, tables, pictures, and page breaks)
+        expected_content_count = (2 + 1 + 1) + 1 + 1  # Page 1 (2 paragraphs, 1 table, 1 image) + page break + page 2 (1 paragraph)
+        self.assertEqual(len(formatted_data['content']), expected_content_count)
+    
+    def test_format_as_markdown(self):
+        """Test formatting document as Markdown."""
+        # Create formatter with default config
+        formatter = OutputFormatter()
+        
+        # Format the document as Markdown
+        formatted_output_file = formatter.save_formatted_output(
+            self.test_document,
+            self.output_dir,
+            'md'
+        )
+        
+        # Check if file exists
+        self.assertTrue(formatted_output_file.exists())
+        
+        # Check file extension
+        self.assertTrue(formatted_output_file.name.endswith('.md'))
+        
+        # Check file content
+        with open(formatted_output_file, 'r', encoding='utf-8') as f:
+            markdown_content = f.read()
+            
+        # Verify content
+        self.assertIn('# Test Document', markdown_content)
+        self.assertIn('## Document Information', markdown_content)
+        self.assertIn('This is a paragraph on page 1.', markdown_content)
+        self.assertIn('| Header 1 | Header 2 |', markdown_content)
+        self.assertIn('| Data 1 | Data 2 |', markdown_content)
+        self.assertIn('![', markdown_content)  # Image syntax
+        self.assertIn('---', markdown_content)  # Page break
+    
+    def test_format_as_html(self):
+        """Test formatting document as HTML."""
+        # Create formatter with default config
+        formatter = OutputFormatter()
+        
+        # Format the document as HTML
+        formatted_output_file = formatter.save_formatted_output(
+            self.test_document,
+            self.output_dir,
+            'html'
+        )
+        
+        # Check if file exists
+        self.assertTrue(formatted_output_file.exists())
+        
+        # Check file extension
+        self.assertTrue(formatted_output_file.name.endswith('.html'))
+        
+        # Check file content
+        with open(formatted_output_file, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+            
+        # Verify content
+        self.assertIn('<!DOCTYPE html>', html_content)
+        self.assertIn('<title>Test Document</title>', html_content)
+        self.assertIn('<h1>Test Document</h1>', html_content)
+        self.assertIn('<div class=\'metadata\'>', html_content)
+        self.assertIn('<p>This is a paragraph on page 1.</p>', html_content)
+        self.assertIn('<table>', html_content)
+        self.assertIn('<th>Header 1</th>', html_content)
+        self.assertIn('<td>Data 1</td>', html_content)
+        self.assertIn('<img src=', html_content)
+        self.assertIn('<figcaption class=\'caption\'>Test Image</figcaption>', html_content)
+        self.assertIn('<div class=\'page-break\'>Page 2</div>', html_content)
+    
+    def test_format_with_custom_config(self):
+        """Test formatting document with custom configuration."""
+        # Create formatter with custom config
+        custom_formatter = OutputFormatter({
+            'include_metadata': False,
+            'include_page_breaks': False,
+            'include_captions': False,
+            'image_base_url': 'https://example.com/images'
+        })
+        
+        # Format the document as JSON
+        formatted_output_file = custom_formatter.save_formatted_output(
+            self.test_document,
+            self.output_dir,
+            'json'
+        )
+        
+        # Check if file exists
+        self.assertTrue(formatted_output_file.exists())
+        
+        # Check file content
+        with open(formatted_output_file, 'r', encoding='utf-8') as f:
+            formatted_data = json.load(f)
+            
+        # Check content for page breaks (should not be present)
+        page_breaks = [item for item in formatted_data['content'] if item.get('type') == 'page_break']
+        self.assertEqual(len(page_breaks), 0)
+        
+        # Check image URLs if there are any images
+        images = [item for item in formatted_data['content'] if item.get('type') == 'image']
+        for image in images:
+            if 'url' in image and image['url']:
+                self.assertTrue(image['url'].startswith('https://example.com/images'))
 
 
 if __name__ == "__main__":

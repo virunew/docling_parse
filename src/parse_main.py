@@ -12,6 +12,8 @@ Environment variables can be set in a .env file:
 - DOCLING_OUTPUT_DIR: Directory for output files
 - DOCLING_LOG_LEVEL: Logging verbosity (DEBUG, INFO, WARNING, ERROR)
 - DOCLING_CONFIG_FILE: Optional path to a configuration file
+- DOCLING_OUTPUT_FORMAT: Output format (json, md, html)
+- DOCLING_IMAGE_BASE_URL: Base URL for image links in output
 """
 # Fix docling imports
 import docling_fix
@@ -35,6 +37,9 @@ from logger_config import logger, setup_logging
 
 # Import the helper functions
 from parse_helper import process_pdf_document, save_output
+
+# Import the output formatter
+from output_formatter import OutputFormatter
 
 # Import docling library components
 try:
@@ -89,6 +94,11 @@ class Configuration:
         self.output_dir = "output"
         self.log_level = "INFO"
         self.config_file = None
+        self.output_format = "json"
+        self.image_base_url = ""
+        self.include_metadata = True
+        self.include_page_breaks = True
+        self.include_captions = True
         
         # Load environment variables
         self._load_from_env()
@@ -110,6 +120,21 @@ class Configuration:
             
         if os.environ.get("DOCLING_CONFIG_FILE"):
             self.config_file = os.environ.get("DOCLING_CONFIG_FILE")
+            
+        if os.environ.get("DOCLING_OUTPUT_FORMAT"):
+            self.output_format = os.environ.get("DOCLING_OUTPUT_FORMAT").lower()
+            
+        if os.environ.get("DOCLING_IMAGE_BASE_URL"):
+            self.image_base_url = os.environ.get("DOCLING_IMAGE_BASE_URL")
+            
+        if os.environ.get("DOCLING_INCLUDE_METADATA"):
+            self.include_metadata = os.environ.get("DOCLING_INCLUDE_METADATA").lower() in ("true", "yes", "1")
+            
+        if os.environ.get("DOCLING_INCLUDE_PAGE_BREAKS"):
+            self.include_page_breaks = os.environ.get("DOCLING_INCLUDE_PAGE_BREAKS").lower() in ("true", "yes", "1")
+            
+        if os.environ.get("DOCLING_INCLUDE_CAPTIONS"):
+            self.include_captions = os.environ.get("DOCLING_INCLUDE_CAPTIONS").lower() in ("true", "yes", "1")
     
     def update_from_args(self, args):
         """
@@ -127,6 +152,21 @@ class Configuration:
             
         if args.config_file is not None:
             self.config_file = args.config_file
+            
+        if args.output_format is not None:
+            self.output_format = args.output_format.lower()
+            
+        if args.image_base_url is not None:
+            self.image_base_url = args.image_base_url
+            
+        if args.include_metadata is not None:
+            self.include_metadata = args.include_metadata
+            
+        if args.include_page_breaks is not None:
+            self.include_page_breaks = args.include_page_breaks
+            
+        if args.include_captions is not None:
+            self.include_captions = args.include_captions
     
     def validate(self):
         """
@@ -151,8 +191,28 @@ class Configuration:
         # If config file is provided, it must exist
         if self.config_file and not Path(self.config_file).exists():
             errors.append(f"Config file not found: {self.config_file}")
+            
+        # Validate output format
+        valid_formats = ["json", "md", "html", "csv"]
+        if self.output_format.lower() not in valid_formats:
+            errors.append(f"Invalid output format: {self.output_format}. Must be one of {valid_formats}")
         
         return errors
+
+    def get_formatter_config(self):
+        """
+        Get configuration for the OutputFormatter.
+        
+        Returns:
+            dict: Configuration settings for OutputFormatter
+        """
+        return {
+            'include_metadata': self.include_metadata,
+            'include_images': True,  # Always include images in the output
+            'image_base_url': self.image_base_url,
+            'include_page_breaks': self.include_page_breaks,
+            'include_captions': self.include_captions
+        }
 
 
 def parse_arguments():
@@ -180,6 +240,64 @@ def parse_arguments():
     parser.add_argument(
         "--config_file", "-c",
         help="Path to additional configuration file"
+    )
+    
+    parser.add_argument(
+        "--output_format", "-f",
+        choices=["json", "md", "html", "csv"],
+        help="Output format (default: json)"
+    )
+    
+    parser.add_argument(
+        "--image_base_url", "-i",
+        help="Base URL for image links in output"
+    )
+    
+    parser.add_argument(
+        "--include_metadata",
+        action="store_true",
+        help="Include metadata in output (default: True)"
+    )
+    
+    parser.add_argument(
+        "--no_metadata",
+        action="store_false",
+        dest="include_metadata",
+        help="Exclude metadata from output"
+    )
+    
+    parser.add_argument(
+        "--include_page_breaks",
+        action="store_true",
+        help="Include page break markers in output (default: True)"
+    )
+    
+    parser.add_argument(
+        "--no_page_breaks",
+        action="store_false",
+        dest="include_page_breaks",
+        help="Exclude page break markers from output"
+    )
+    
+    parser.add_argument(
+        "--include_captions",
+        action="store_true",
+        help="Include captions for tables and images (default: True)"
+    )
+    
+    parser.add_argument(
+        "--no_captions",
+        action="store_false",
+        dest="include_captions",
+        help="Exclude captions from tables and images"
+    )
+    
+    # Set default values to None to distinguish between
+    # not provided and explicitly set to False
+    parser.set_defaults(
+        include_metadata=None,
+        include_page_breaks=None,
+        include_captions=None
     )
     
     return parser.parse_args()
@@ -220,6 +338,7 @@ def main():
         logger.info(f"Starting PDF document processing")
         logger.info(f"PDF path: {config.pdf_path}")
         logger.info(f"Output directory: {config.output_dir}")
+        logger.info(f"Output format: {config.output_format}")
         
         # Create output directory if it doesn't exist
         output_dir_path = Path(config.output_dir)
@@ -228,11 +347,26 @@ def main():
         # Process the PDF document
         docling_document = process_pdf_document(config.pdf_path, config.output_dir, config.config_file)
         
-        # Save the output as JSON
+        # Save the output as JSON (standard format)
         output_file = save_output(docling_document, config.output_dir)
         
+        # Load the JSON output for formatting
+        with open(output_file, 'r', encoding='utf-8') as f:
+            document_data = json.load(f)
+        
+        # Create a formatter with the specified configuration
+        formatter = OutputFormatter(config.get_formatter_config())
+        
+        # Save the formatted output
+        formatted_output_file = formatter.save_formatted_output(
+            document_data,
+            config.output_dir,
+            config.output_format
+        )
+        
         logger.info(f"Document processing completed successfully")
-        logger.info(f"Output saved to: {output_file}")
+        logger.info(f"Standard output saved to: {output_file}")
+        logger.info(f"Formatted output saved to: {formatted_output_file}")
         
         return 0
     except Exception as e:
