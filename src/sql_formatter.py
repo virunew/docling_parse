@@ -6,10 +6,193 @@ into a standardized JSON format suitable for SQL database ingestion.
 """
 import json
 import logging
+import os
+from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
 
 # Import the logger configuration
 from logger_config import logger
+
+# Import standardized output formatter
+from src.format_standardized_output import save_standardized_output
+
+# Import SQL insert generator
+from src.sql_insert_generator import SQLInsertGenerator
+
+
+class SQLFormatter:
+    """
+    Formats document data into SQL-compatible JSON format and generates SQL INSERT statements.
+    
+    This class provides methods to convert Docling document data into a standardized
+    format that maps to SQL database schemas and can generate SQL INSERT statements
+    for direct database ingestion.
+    """
+    
+    def __init__(self, dialect: str = "postgresql"):
+        """
+        Initialize the SQL formatter.
+        
+        Args:
+            dialect (str): SQL dialect to use for INSERT statements
+                          (postgresql, mysql, sqlite)
+        """
+        logger.info(f"Initializing SQL formatter with dialect: {dialect}")
+        self.dialect = dialect
+        
+        # Initialize SQL insert generator
+        self.insert_generator = SQLInsertGenerator(dialect)
+    
+    def format_as_sql(self, document_data: Dict[str, Any], doc_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Format document data as SQL-compatible JSON.
+        
+        Args:
+            document_data (Dict[str, Any]): The parsed Docling document data
+            doc_id (Optional[str]): Optional document ID to use in the output
+            
+        Returns:
+            Dict[str, Any]: A dictionary with the standardized output format containing
+                          chunks, furniture, and source_metadata
+        """
+        logger.info("Formatting document as SQL-compatible JSON")
+        try:
+            return process_docling_json_to_sql_format(document_data, doc_id)
+        except Exception as e:
+            logger.error(f"Error formatting document as SQL: {e}", exc_info=True)
+            # Return a minimal structure in case of failure
+            return {
+                "chunks": [],
+                "furniture": [],
+                "source_metadata": {
+                    "filename": document_data.get("metadata", {}).get("filename", "unknown"),
+                    "mimetype": "application/pdf",
+                    "binary_hash": ""
+                }
+            }
+    
+    def generate_sql_inserts(self, document_data: Dict[str, Any], doc_id: Optional[str] = None) -> str:
+        """
+        Generate SQL INSERT statements from document data.
+        
+        Args:
+            document_data (Dict[str, Any]): The document data to generate INSERT statements from
+            doc_id (Optional[str]): Optional document ID to use in the output
+            
+        Returns:
+            str: SQL INSERT statements as a string
+        """
+        logger.info("Generating SQL INSERT statements")
+        try:
+            # First, format the document data as SQL-compatible JSON
+            formatted_data = self.format_as_sql(document_data, doc_id)
+            
+            # Then generate SQL INSERT statements
+            return self.insert_generator.generate_sql_inserts(formatted_data)
+        except Exception as e:
+            logger.error(f"Error generating SQL INSERT statements: {e}", exc_info=True)
+            return f"-- Error generating SQL INSERT statements: {e}"
+    
+    def save_formatted_output(self, document_data: Dict[str, Any], 
+                              output_dir: Union[str, Path], 
+                              doc_id: Optional[str] = None,
+                              use_standardized_format: bool = False,
+                              pdf_path: Optional[str] = None,
+                              generate_inserts: bool = False) -> str:
+        """
+        Format document data as SQL-compatible JSON and save it to disk.
+        
+        Args:
+            document_data (Dict[str, Any]): The parsed Docling document data
+            output_dir (Union[str, Path]): Directory to save the output file
+            doc_id (Optional[str]): Optional document ID to use in the output
+            use_standardized_format (bool): Whether to use the standardized format
+                from format_standardized_output instead of the default SQL format
+            pdf_path (Optional[str]): Path to the original PDF file, required if
+                use_standardized_format is True
+            generate_inserts (bool): Whether to generate SQL INSERT statements
+                instead of SQL-compatible JSON
+            
+        Returns:
+            str: Path to the saved output file
+        """
+        logger.info(f"Saving SQL formatted output to directory: {output_dir}")
+        
+        # Create output directory if it doesn't exist
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        # If generating INSERT statements
+        if generate_inserts:
+            logger.info("Generating SQL INSERT statements")
+            # Use standardized format as basis for INSERT statements
+            if use_standardized_format and pdf_path is not None:
+                logger.info("Using standardized format for SQL INSERT statements")
+                # Generate standardized format and then create INSERT statements
+                standardized_output_file = save_standardized_output(document_data, output_path, pdf_path)
+                
+                # Load the standardized output
+                with open(standardized_output_file, 'r', encoding='utf-8') as f:
+                    standardized_data = json.load(f)
+                
+                # Generate and save SQL INSERT statements
+                return self.insert_generator.save_sql_inserts(standardized_data, output_path)
+            else:
+                logger.info("Using default SQL format for SQL INSERT statements")
+                # Use default SQL format as basis for INSERT statements
+                sql_formatted_data = self.format_as_sql(document_data, doc_id)
+                
+                # Generate and save SQL INSERT statements
+                return self.insert_generator.save_sql_inserts(sql_formatted_data, output_path)
+        
+        # Determine the output approach for non-INSERT formats
+        if use_standardized_format:
+            if pdf_path is None:
+                logger.warning("PDF path is required for standardized format. Using default SQL format.")
+                return self._save_default_sql_format(document_data, output_path, doc_id)
+            
+            # Use the standardized output format
+            output_file = save_standardized_output(document_data, output_path, pdf_path)
+            logger.info(f"SQL formatted output (standardized format) saved to: {output_file}")
+            return output_file
+        else:
+            # Use the default SQL format
+            return self._save_default_sql_format(document_data, output_path, doc_id)
+    
+    def _save_default_sql_format(self, document_data: Dict[str, Any], 
+                                output_path: Path, 
+                                doc_id: Optional[str] = None) -> str:
+        """
+        Save document data using the default SQL format.
+        
+        Args:
+            document_data (Dict[str, Any]): The parsed Docling document data
+            output_path (Path): Path to the output directory
+            doc_id (Optional[str]): Optional document ID to use in the output
+            
+        Returns:
+            str: Path to the saved SQL format file
+        """
+        # Format the document data
+        sql_formatted_data = self.format_as_sql(document_data, doc_id)
+        
+        # Determine the output filename
+        filename = document_data.get("name", "document")
+        if "metadata" in document_data and "filename" in document_data["metadata"]:
+            # Extract base filename from the PDF path if available
+            pdf_filename = Path(document_data["metadata"]["filename"]).stem
+            filename = pdf_filename
+        
+        # Create output file path
+        output_file = output_path / f"{filename}_sql.json"
+        
+        # Save the formatted data
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(sql_formatted_data, f, indent=2)
+        
+        logger.info(f"SQL formatted output (default format) saved to: {output_file}")
+        return str(output_file)
+
 
 def process_docling_json_to_sql_format(document_data: Dict[str, Any], 
                                        doc_id: Optional[str] = None) -> Dict[str, Any]:

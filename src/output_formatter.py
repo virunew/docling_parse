@@ -12,9 +12,13 @@ from pathlib import Path
 from typing import Dict, Any, List, Union, Optional
 import io
 import csv
+import uuid
+from copy import deepcopy
+from datetime import datetime
 
 # Import the SQL formatter
 from src.sql_formatter import process_docling_json_to_sql_format
+from src.sql_insert_generator import SQLInsertGenerator
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -27,33 +31,41 @@ class OutputFormatter:
     and converts it to various formats for different use cases.
     """
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: Dict[str, Any] = None):
         """
         Initialize the OutputFormatter with configuration settings.
         
         Args:
-            config: Dictionary with configuration settings
+            config: Configuration dictionary with options for formatting.
         """
-        self.config = config or {}
-        
-        # Default configuration
-        self.default_config = {
-            'include_metadata': True,
-            'include_images': True,
-            'image_base_url': '',
-            'max_image_width': 800,
-            'max_heading_depth': 3,
-            'include_page_breaks': True,
-            'include_captions': True,
-            'table_formatting': 'grid',  # 'grid', 'simple', or 'none'
-            'doc_id': None  # Document ID for SQL formatting
+        if config is None:
+            config = {}
+
+        # Set default configuration values
+        self.config = {
+            "include_metadata": True,
+            "include_images": True,
+            "image_base_url": '',
+            "max_image_width": 800,
+            "max_heading_depth": 3,
+            "include_page_breaks": True,
+            "include_captions": True,
+            "table_formatting": "grid",  # 'grid', 'simple', or 'none'
+            "doc_id": None,  # Document ID for SQL formatting
+            "markdown_heading_style": 'atx',  # atx uses # style, setext uses underlines
+            "include_section_numbers": False,
+            "merge_consecutive_paragraphs": False,
+            "simplified_structure": False,
+            "output_indent": 2,
+            "format": "simplified_json",
+            "output_dir": None,
+            "include_sql": False,
+            "sql_dialect": "postgresql"
         }
+
+        # Update with user-provided configuration
+        self.config.update(config)
         
-        # Apply default config for any missing values
-        for key, value in self.default_config.items():
-            if key not in self.config:
-                self.config[key] = value
-                
         logger.debug(f"Initialized OutputFormatter with config: {self.config}")
     
     def format_as_sql_json(self, document_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -497,27 +509,27 @@ class OutputFormatter:
                             metadata
                         ])
                         content_count += 1
+            
+            # Process images if available
+            for i, image in enumerate(document_data.get("pictures", [])):
+                if "content_layer" in image and image.get("content_layer") == "furniture":
+                    continue  # Skip furniture images
                 
-                # Process images if available
-                for i, image in enumerate(document_data.get("pictures", [])):
-                    if "content_layer" in image and image.get("content_layer") == "furniture":
-                        continue  # Skip furniture images
-                    
-                    # Get page number
-                    page_number = ""
-                    if "prov" in image and "page_no" in image["prov"]:
-                        page_number = str(image["prov"].get("page_no", ""))
-                    
-                    # Add image row
-                    caption = image.get("caption", "") or f"Image {i+1}"
-                    writer.writerow([
-                        "image",
-                        page_number,
-                        caption,
-                        "",
-                        f"image_index:{i}"
-                    ])
-                    content_count += 1
+                # Get page number
+                page_number = ""
+                if "prov" in image and "page_no" in image["prov"]:
+                    page_number = str(image["prov"].get("page_no", ""))
+                
+                # Add image row
+                caption = image.get("caption", "") or f"Image {i+1}"
+                writer.writerow([
+                    "image",
+                    page_number,
+                    caption,
+                    "",
+                    f"image_index:{i}"
+                ])
+                content_count += 1
             
             # Make sure we have at least one content row in the output
             if content_count == 0:
@@ -1109,6 +1121,94 @@ class OutputFormatter:
         html_lines.append("  </table>")
         
         return html_lines
+
+    def format_as_sql(self, document_data: Dict[str, Any], save_to_file: bool = False) -> str:
+        """
+        Format document data as SQL INSERT statements.
+
+        Args:
+            document_data: The parsed document data.
+            save_to_file: Whether to save the SQL to a file.
+
+        Returns:
+            SQL INSERT statements as a string.
+        """
+        try:
+            dialect = self.config.get("sql_dialect", "postgresql")
+            self.logger.info(f"Generating SQL INSERT statements using {dialect} dialect")
+            
+            sql_generator = SQLInsertGenerator(dialect=dialect)
+            sql_inserts = sql_generator.generate_sql_inserts(document_data)
+            
+            if save_to_file and self.config.get("output_dir"):
+                output_path = sql_generator.save_sql_inserts(
+                    document_data,
+                    self.config["output_dir"]
+                )
+                self.logger.info(f"Saved SQL INSERT statements to {output_path}")
+            
+            return sql_inserts
+        except Exception as e:
+            error_msg = f"Error generating SQL INSERT statements: {str(e)}"
+            self.logger.error(error_msg)
+            return f"-- {error_msg}"
+    
+    def format_document(self, document_data: Dict[str, Any], save_to_file: bool = True) -> Dict[str, Any]:
+        """
+        Format the document data according to the specified format.
+
+        Args:
+            document_data: The parsed document data.
+            save_to_file: Whether to save the formatted output to a file.
+
+        Returns:
+            The formatted document data.
+        """
+        format_type = self.config.get("format", "simplified_json").lower()
+        self.logger.info(f"Formatting document as {format_type}")
+
+        result = {}
+
+        try:
+            if format_type == "json":
+                result["json"] = document_data
+                if save_to_file:
+                    self.save_formatted_output(document_data, self.config["output_dir"], format_type)
+
+            elif format_type == "simplified_json":
+                result["simplified_json"] = self.format_as_simplified_json(document_data)
+                if save_to_file:
+                    self.save_formatted_output(document_data, self.config["output_dir"], format_type)
+
+            elif format_type == "markdown":
+                result["markdown"] = self.format_as_markdown(document_data)
+                if save_to_file:
+                    self.save_formatted_output(document_data, self.config["output_dir"], format_type)
+
+            elif format_type == "html":
+                result["html"] = self.format_as_html(document_data)
+                if save_to_file:
+                    self.save_formatted_output(document_data, self.config["output_dir"], format_type)
+
+            elif format_type == "csv":
+                result["csv"] = self.format_as_csv(document_data)
+                if save_to_file:
+                    self.save_formatted_output(document_data, self.config["output_dir"], format_type)
+
+            # Generate SQL JSON if requested
+            if self.config.get("include_sql_json", False):
+                result["sql_json"] = self.format_as_sql_json(document_data)
+                if save_to_file:
+                    self.save_formatted_output(document_data, self.config["output_dir"], "sql")
+            
+            # Generate SQL INSERT statements if requested
+            if self.config.get("include_sql", False):
+                result["sql"] = self.format_as_sql(document_data, save_to_file=save_to_file)
+
+        except Exception as e:
+            self.logger.error(f"Error formatting document: {e}")
+
+        return result
 
 
 # Example usage (when running as standalone module)

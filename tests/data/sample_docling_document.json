@@ -1,0 +1,73 @@
+{
+  "name": "sample_document",
+  "type": "DoclingDocument",
+  "version": "1.3.0",
+  "texts": [
+    {
+      "self_ref": "#/texts/0",
+      "text_type": "Section",
+      "label": "section_header",
+      "content": "Introduction",
+      "content_layer": "body"
+    },
+    {
+      "self_ref": "#/texts/1",
+      "text_type": "Paragraph",
+      "label": "text",
+      "content": "This is a sample paragraph in the introduction.",
+      "content_layer": "body"
+    }
+  ],
+  "tables": [
+    {
+      "self_ref": "#/tables/0",
+      "label": "table",
+      "content": [
+        ["Header 1", "Header 2"],
+        ["Row 1, Cell 1", "Row 1, Cell 2"]
+      ],
+      "content_layer": "body"
+    }
+  ],
+  "pictures": [
+    {
+      "self_ref": "#/pictures/0",
+      "label": "picture",
+      "data_uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "content_layer": "body"
+    }
+  ],
+  "groups": [
+    {
+      "self_ref": "#/groups/0",
+      "label": "section",
+      "elements": [
+        "#/texts/0",
+        "#/texts/1"
+      ],
+      "content_layer": "body"
+    },
+    {
+      "self_ref": "#/groups/1",
+      "label": "section",
+      "elements": [
+        "#/tables/0",
+        "#/pictures/0"
+      ],
+      "content_layer": "body"
+    }
+  ],
+  "body": {
+    "elements": [
+      "#/groups/0",
+      "#/groups/1"
+    ]
+  },
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 595,
+      "height": 842
+    }
+  ]
+} 

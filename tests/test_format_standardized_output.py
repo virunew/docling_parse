@@ -1,198 +1,279 @@
 """
-Test module for format_standardized_output.py
+Unit test for the format_standardized_output module.
 
-This module contains unit tests for the format_standardized_output functions.
+This module tests the functionality of the format_standardized_output module,
+which converts document data into a standardized format compatible with SQL databases.
 """
 
 import os
 import json
 import unittest
-from pathlib import Path
 import tempfile
-import shutil
+from pathlib import Path
+import sys
+
+# Add the parent directory to the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Import the module to test
 from src.format_standardized_output import (
-    is_furniture,
-    extract_content_type,
-    format_text_block,
+    save_standardized_output, 
+    build_chunk, 
+    format_text_block, 
     format_table_block,
-    build_chunk,
-    save_standardized_output
+    is_furniture,
+    extract_content_type
 )
 
+
 class TestFormatStandardizedOutput(unittest.TestCase):
-    """Test cases for format_standardized_output.py functions."""
-    
+    """Test cases for the format_standardized_output module."""
+
     def setUp(self):
         """Set up test fixtures."""
-        self.temp_dir = tempfile.mkdtemp()
-        
-        # Sample element data
-        self.text_element = {
-            "type": "text",
-            "text_content": "Sample text content",
-            "content_layer": "body",
-            "extracted_metadata": {
-                "breadcrumb": "Section > Subsection",
-                "page_no": 1,
-                "bbox_raw": {"l": 50, "t": 100, "r": 300, "b": 150}
-            }
-        }
-        
-        self.furniture_element = {
-            "type": "text",
-            "text_content": "Header text",
-            "content_layer": "furniture"
-        }
-        
-        self.image_element = {
-            "type": "picture",
-            "content_layer": "body",
-            "external_path": "images/sample.png",
-            "context_before": "Text before image",
-            "context_after": "Text after image",
-            "extracted_metadata": {
-                "breadcrumb": "Section > Subsection",
-                "page_no": 2,
-                "bbox_raw": {"l": 100, "t": 200, "r": 300, "b": 400},
-                "image_ocr_text": "Text extracted from image"
-            }
-        }
-        
-        self.table_element = {
-            "type": "table",
-            "content_layer": "body",
-            "table_content": [["Header1", "Header2"], ["Row1Col1", "Row1Col2"]],
-            "extracted_metadata": {
-                "breadcrumb": "Section > Tables",
-                "page_no": 3,
-                "bbox_raw": {"l": 50, "t": 300, "r": 400, "b": 450}
-            }
-        }
-        
-        # Sample document data
-        self.document_data = {
+        # Create sample document data
+        self.sample_document = {
             "name": "test_document",
+            "metadata": {
+                "filename": "test_document.pdf",
+                "mimetype": "application/pdf",
+                "binary_hash": "abc123"
+            },
             "element_map": {
                 "flattened_sequence": [
-                    self.text_element,
-                    self.furniture_element,
-                    self.image_element,
-                    self.table_element
+                    # Text element
+                    {
+                        "type": "text",
+                        "text_content": "This is a sample text paragraph.",
+                        "content_layer": "content",
+                        "extracted_metadata": {
+                            "breadcrumb": "Document > Section > Subsection",
+                            "bbox_raw": {"l": 50, "t": 100, "r": 550, "b": 150},
+                            "page_no": 1
+                        }
+                    },
+                    # Furniture element
+                    {
+                        "type": "header",
+                        "text_content": "Header Text",
+                        "content_layer": "furniture",
+                        "extracted_metadata": {
+                            "bbox_raw": {"l": 50, "t": 50, "r": 550, "b": 80},
+                            "page_no": 1
+                        }
+                    },
+                    # Table element
+                    {
+                        "type": "table",
+                        "table_content": [["Header1", "Header2"], ["Value1", "Value2"]],
+                        "content_layer": "content",
+                        "extracted_metadata": {
+                            "breadcrumb": "Document > Section > Tables",
+                            "caption": "Sample Table",
+                            "bbox_raw": {"l": 50, "t": 200, "r": 550, "b": 300},
+                            "page_no": 2
+                        }
+                    },
+                    # Image element
+                    {
+                        "type": "picture",
+                        "context_before": "Text before the image.",
+                        "ocr_text": "Text extracted from image via OCR",
+                        "context_after": "Text after the image.",
+                        "external_path": "/path/to/images/test_image.png",
+                        "content_layer": "content",
+                        "extracted_metadata": {
+                            "breadcrumb": "Document > Section > Images",
+                            "caption": "Sample Image",
+                            "bbox_raw": {"l": 100, "t": 150, "r": 500, "b": 450},
+                            "page_no": 3,
+                            "image_width": 400,
+                            "image_height": 300,
+                            "image_mimetype": "image/png"
+                        }
+                    }
                 ]
             }
         }
+        
+        # Create temp directory for output
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.output_dir = self.temp_dir.name
     
     def tearDown(self):
-        """Tear down test fixtures."""
-        shutil.rmtree(self.temp_dir)
+        """Clean up temporary files."""
+        self.temp_dir.cleanup()
     
     def test_is_furniture(self):
-        """Test is_furniture function."""
-        self.assertFalse(is_furniture(self.text_element))
-        self.assertTrue(is_furniture(self.furniture_element))
-        self.assertFalse(is_furniture(self.image_element))
-        self.assertFalse(is_furniture(self.table_element))
+        """Test the is_furniture function."""
+        # Get elements from sample document
+        elements = self.sample_document["element_map"]["flattened_sequence"]
+        
+        # Test furniture element
+        self.assertTrue(is_furniture(elements[1]))
+        
+        # Test content elements
+        self.assertFalse(is_furniture(elements[0]))
+        self.assertFalse(is_furniture(elements[2]))
+        self.assertFalse(is_furniture(elements[3]))
     
     def test_extract_content_type(self):
-        """Test extract_content_type function."""
-        self.assertEqual(extract_content_type(self.text_element), "text")
-        self.assertEqual(extract_content_type(self.image_element), "image")
-        self.assertEqual(extract_content_type(self.table_element), "table")
+        """Test the extract_content_type function."""
+        # Get elements from sample document
+        elements = self.sample_document["element_map"]["flattened_sequence"]
+        
+        # Check content types
+        self.assertEqual("text", extract_content_type(elements[0]))
+        self.assertEqual("text", extract_content_type(elements[1]))  # Header is text type
+        self.assertEqual("table", extract_content_type(elements[2]))
+        self.assertEqual("image", extract_content_type(elements[3]))
     
     def test_format_text_block(self):
-        """Test format_text_block function."""
-        # Test text element
-        text_block = format_text_block(self.text_element, "Section > Subsection")
-        self.assertIn("Section > Subsection", text_block)
-        self.assertIn("Sample text content", text_block)
+        """Test the format_text_block function."""
+        # Get text element
+        text_element = self.sample_document["element_map"]["flattened_sequence"][0]
         
-        # Test image element with breadcrumb
-        image_block = format_text_block(self.image_element, "Section > Subsection")
-        self.assertIn("Section > Subsection", image_block)
-        self.assertIn("Text before image", image_block)
-        self.assertIn("[Image Text:", image_block)
-        self.assertIn("Text extracted from image", image_block)
-        self.assertIn("Text after image", image_block)
+        # Format text block
+        text_block = format_text_block(text_element, "Document > Section > Subsection")
+        
+        # Check for breadcrumb and text content
+        self.assertIn("Document > Section > Subsection", text_block)
+        self.assertIn("This is a sample text paragraph.", text_block)
+        
+        # Test image element
+        image_element = self.sample_document["element_map"]["flattened_sequence"][3]
+        image_block = format_text_block(image_element, "Document > Section > Images")
+        
+        # Check for image-specific content
+        self.assertIn("Text before the image.", image_block)
+        self.assertIn("[Image Text: Text extracted from image via OCR]", image_block)
+        self.assertIn("Text after the image.", image_block)
     
     def test_format_table_block(self):
-        """Test format_table_block function."""
-        # Test table element
-        table_block = format_table_block(self.table_element)
+        """Test the format_table_block function."""
+        # Get table element
+        table_element = self.sample_document["element_map"]["flattened_sequence"][2]
+        
+        # Format table block
+        table_block = format_table_block(table_element)
+        
+        # Check table format
         self.assertIsNotNone(table_block)
         table_data = json.loads(table_block)
-        self.assertEqual(len(table_data), 2) # Two rows
-        self.assertEqual(table_data[0][0], "Header1")
+        self.assertEqual(2, len(table_data))
+        self.assertEqual(2, len(table_data[0]))
+        self.assertEqual("Header1", table_data[0][0])
+        self.assertEqual("Value2", table_data[1][1])
         
-        # Test non-table element
-        self.assertIsNone(format_table_block(self.text_element))
+        # Test with non-table element
+        text_element = self.sample_document["element_map"]["flattened_sequence"][0]
+        self.assertIsNone(format_table_block(text_element))
     
     def test_build_chunk(self):
-        """Test build_chunk function."""
-        source_metadata = {
-            "filename": "test.pdf",
-            "mimetype": "application/pdf"
-        }
+        """Test the build_chunk function."""
+        # Get elements
+        text_element = self.sample_document["element_map"]["flattened_sequence"][0]
         
-        # Test text chunk
-        text_chunk = build_chunk(self.text_element, 1, None, source_metadata)
-        self.assertEqual(text_chunk["content_type"], "text")
-        self.assertEqual(text_chunk["block_id"], 1)
-        self.assertEqual(text_chunk["master_index"], 1)
-        self.assertEqual(text_chunk["coords_x"], 50)
-        self.assertEqual(text_chunk["coords_y"], 100)
-        self.assertEqual(text_chunk["coords_cx"], 250)
-        self.assertEqual(text_chunk["coords_cy"], 50)
+        # Build a chunk
+        source_metadata = self.sample_document["metadata"]
+        chunk = build_chunk(text_element, 1, "test-doc-001", source_metadata)
         
-        # Test image chunk
-        image_chunk = build_chunk(self.image_element, 2, None, source_metadata)
-        self.assertEqual(image_chunk["content_type"], "image")
-        self.assertEqual(image_chunk["external_files"], "images/sample.png")
-        self.assertEqual(image_chunk["master_index"], 2)
+        # Verify required fields
+        required_fields = [
+            "_id", "block_id", "doc_id", "content_type", "file_type", 
+            "master_index", "master_index2", "coords_x", "coords_y", 
+            "coords_cx", "coords_cy", "author_or_speaker", "added_to_collection", 
+            "file_source", "table_block", "modified_date", "created_date", 
+            "creator_tool", "external_files", "text_block", "header_text", 
+            "text_search", "user_tags", "special_field1", "special_field2", 
+            "special_field3", "graph_status", "dialog", "embedding_flags", "metadata"
+        ]
         
-        # Test table chunk
-        table_chunk = build_chunk(self.table_element, 3, None, source_metadata)
-        self.assertEqual(table_chunk["content_type"], "table")
-        self.assertIsNotNone(table_chunk["table_block"])
+        for field in required_fields:
+            self.assertIn(field, chunk)
+        
+        # Check specific values
+        self.assertEqual(1, chunk["block_id"])
+        self.assertEqual("test-doc-001", chunk["doc_id"])
+        self.assertEqual("text", chunk["content_type"])
+        self.assertEqual("application/pdf", chunk["file_type"])
+        self.assertEqual(1, chunk["master_index"])
+        self.assertEqual(50, chunk["coords_x"])
+        self.assertEqual(100, chunk["coords_y"])
+        self.assertEqual(500, chunk["coords_cx"])
+        self.assertEqual(50, chunk["coords_cy"])
+        self.assertEqual("test_document.pdf", chunk["file_source"])
+        self.assertIn("This is a sample text paragraph.", chunk["text_block"])
+        self.assertEqual("Document > Section > Subsection", chunk["header_text"])
+        self.assertEqual("This is a sample text paragraph.", chunk["text_search"])
+        
+        # Test with image element
+        image_element = self.sample_document["element_map"]["flattened_sequence"][3]
+        image_chunk = build_chunk(image_element, 2, "test-doc-001", source_metadata)
+        
+        # Check image-specific fields
+        self.assertEqual("image", image_chunk["content_type"])
+        self.assertEqual("/path/to/images/test_image.png", image_chunk["external_files"])
+        self.assertIn("[Image Text: Text extracted from image via OCR]", image_chunk["text_block"])
     
     def test_save_standardized_output(self):
-        """Test save_standardized_output function."""
+        """Test the save_standardized_output function."""
+        # Create a temporary PDF path for the test
+        pdf_path = os.path.join(self.temp_dir.name, "test_document.pdf")
+        
+        # Create an empty file
+        with open(pdf_path, 'w') as f:
+            f.write("dummy pdf content")
+        
+        # Save standardized output
         output_file = save_standardized_output(
-            self.document_data,
-            self.temp_dir,
-            "test.pdf"
+            self.sample_document,
+            self.output_dir,
+            pdf_path
         )
         
         # Check that the file exists
         self.assertTrue(os.path.exists(output_file))
         
-        # Load and check the contents
-        with open(output_file, 'r') as f:
+        # Load the output and validate its structure
+        with open(output_file, 'r', encoding='utf-8') as f:
             output_data = json.load(f)
         
-        # Check structure
+        # Check the output structure
         self.assertIn("chunks", output_data)
         self.assertIn("furniture", output_data)
         self.assertIn("source_metadata", output_data)
         
+        # Check source metadata
+        self.assertEqual("test_document.pdf", output_data["source_metadata"]["filename"])
+        self.assertEqual("application/pdf", output_data["source_metadata"]["mimetype"])
+        
         # Check furniture
-        self.assertEqual(len(output_data["furniture"]), 1)
-        self.assertEqual(output_data["furniture"][0], "Header text")
+        self.assertIn("Header Text", output_data["furniture"])
         
-        # Check chunks
-        self.assertEqual(len(output_data["chunks"]), 3)  # Excluding furniture
+        # Check chunks - should have 3 (text, table, image)
+        self.assertEqual(3, len(output_data["chunks"]))
         
-        # Check chunk fields
-        chunk_types = [chunk["content_type"] for chunk in output_data["chunks"]]
-        self.assertIn("text", chunk_types)
-        self.assertIn("image", chunk_types)
-        self.assertIn("table", chunk_types)
-        
-        # Check metadata
-        self.assertEqual(output_data["source_metadata"]["filename"], "test.pdf")
-        self.assertEqual(output_data["source_metadata"]["mimetype"], "application/pdf")
+        # Validate chunk structure and content
+        for chunk in output_data["chunks"]:
+            # Check required fields
+            required_fields = [
+                "block_id", "content_type", "file_type", "master_index", 
+                "coords_x", "coords_y", "coords_cx", "coords_cy", 
+                "text_block", "header_text"
+            ]
+            for field in required_fields:
+                self.assertIn(field, chunk)
+            
+            # Additional checks for specific content types
+            if chunk["content_type"] == "text":
+                self.assertIn("This is a sample text paragraph.", chunk["text_block"])
+            elif chunk["content_type"] == "table":
+                self.assertIsNotNone(chunk["table_block"])
+            elif chunk["content_type"] == "image":
+                self.assertIsNotNone(chunk["external_files"])
+                self.assertIn("[Image Text:", chunk["text_block"])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main() 

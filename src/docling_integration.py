@@ -6,23 +6,57 @@ making it easier to use docling's features for document processing.
 """
 
 # Fix docling imports
+import sys
+import os
+from pathlib import Path
+
+# Add parent directory to sys.path to find docling_fix
+current_dir = Path(os.path.dirname(os.path.abspath(__file__)))
+project_root = current_dir.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 import docling_fix
 
 import logging
 import json
 from typing import Dict, List, Any, Optional, Union
 from pathlib import Path
+import os
+
+# Debug printing
+print ("PYTHONPATH:", os.environ.get("PYTHONPATH"))
 
 # Import docling library components
-from docling.document_converter import DocumentConverter
-from docling.datamodel.base_models import InputFormat
-from docling.document_converter import PdfFormatOption
-from docling.datamodel.pipeline_options import PdfPipelineOptions
-from docling.datamodel.document import ConversionResult
-from docling_core.types.doc import DoclingDocument
-
-# Configure logging
-logger = logging.getLogger(__name__)
+try:
+    from docling.document_converter import DocumentConverter
+    from docling.datamodel.base_models import InputFormat
+    from docling.document_converter import PdfFormatOption
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
+    from docling.datamodel.document import ConversionResult
+    from docling_core.types.doc import DoclingDocument
+    
+    # Configure logging
+    logger = logging.getLogger(__name__)
+    logger.info("Successfully imported docling modules")
+except ImportError as e:
+    logger = logging.getLogger(__name__)
+    logger.error(f"Error importing docling modules: {e}")
+    
+    # Create placeholder classes for type hints
+    class PdfPipelineOptions:
+        """Placeholder for PdfPipelineOptions class"""
+        def __init__(self):
+            self.images_scale = 2.0
+            self.generate_page_images = True
+            self.generate_picture_images = True
+            self.do_picture_description = True
+            self.do_table_structure = True
+            self.allow_external_plugins = True
+    
+    class DoclingDocument:
+        """Placeholder for DoclingDocument class"""
+        pass
 
 def create_pdf_pipeline_options(
     images_scale: float = 2.0,

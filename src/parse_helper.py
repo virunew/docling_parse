@@ -7,13 +7,26 @@ images with enhanced processing capabilities.
 """
 
 # Fix docling imports
-#import docling_fix
+import sys
+import os
+from pathlib import Path
+
+# Add parent directory to sys.path to find docling_fix
+current_dir = Path(os.path.dirname(os.path.abspath(__file__)))
+project_root = current_dir.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+import docling_fix
 
 import logging
-import os
 import json
+import csv
+import uuid
 from pathlib import Path
-from typing import Dict, Any, Optional, Union
+from typing import Dict, List, Union, Any, Optional, Tuple
+
+import pandas as pd
 
 # Import docling integration functions
 from docling_integration import (
@@ -25,12 +38,14 @@ from docling_integration import (
 )
 
 # Import local modules
-from element_map_builder import build_element_map
+from element_map_builder import build_element_map, DoclingJSONEncoder, convert_to_serializable
 from logger_config import logger
 from pdf_image_extractor import ImageContentRelationship, PDFImageExtractor
 from image_extraction_module import process_pdf_for_images, EnhancedImageExtractor
 from metadata_extractor import extract_full_metadata, build_metadata_object
 
+# Setup logging
+logger = logging.getLogger(__name__)
 
 def save_output(docling_document, output_dir):
     """
@@ -64,10 +79,13 @@ def save_output(docling_document, output_dir):
             logger.info(f"Found images data at {images_data_path}, incorporating into output")
             doc_dict = merge_with_image_data(doc_dict, images_data_path)
         
-        # Write the JSON output
+        # Make the document JSON serializable
+        serializable_doc = convert_to_serializable(doc_dict)
+        
+        # Write the JSON output using the custom encoder
         output_file = output_path / f"{doc_name}.json"
         with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(doc_dict, f, indent=2)
+            json.dump(serializable_doc, f, indent=2, cls=DoclingJSONEncoder)
         
         logger.info(f"Document saved to {output_file}")
         return output_file
@@ -134,7 +152,7 @@ def process_pdf_document(pdf_path, output_dir, config_file=None, image_extractio
         # Save the element map to the file-specific directory
         element_map_path = file_output_dir / "element_map.json"
         with open(element_map_path, 'w', encoding='utf-8') as f:
-            json.dump(element_map, f, indent=2)
+            json.dump(element_map, f, indent=2, cls=DoclingJSONEncoder)
         logger.info(f"Element map saved to {element_map_path}")
         
         # Step 3: Extract metadata
@@ -153,6 +171,11 @@ def process_pdf_document(pdf_path, output_dir, config_file=None, image_extractio
             logger.info("Extracting metadata for document elements")
             for i, element in enumerate(flattened_sequence):
                 try:
+                    # Check that the element is a dictionary before processing
+                    if not isinstance(element, dict):
+                        logger.warning(f"Element {i} is not a dictionary, skipping metadata extraction")
+                        continue
+                        
                     # Extract full metadata for the element
                     metadata = extract_full_metadata(element, flattened_sequence, doc_info)
                     
@@ -170,7 +193,7 @@ def process_pdf_document(pdf_path, output_dir, config_file=None, image_extractio
             # Save the updated element map with metadata
             metadata_map_path = file_output_dir / "element_map_with_metadata.json"
             with open(metadata_map_path, 'w', encoding='utf-8') as f:
-                json.dump(element_map, f, indent=2)
+                json.dump(element_map, f, indent=2, cls=DoclingJSONEncoder)
             logger.info(f"Element map with metadata saved to {metadata_map_path} ({metadata_processed} elements processed)")
         
         # Step 4: Extract images from the PDF document

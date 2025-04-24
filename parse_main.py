@@ -12,25 +12,35 @@ Environment variables can be set in a .env file:
 - DOCLING_OUTPUT_DIR: Directory for output files
 - DOCLING_LOG_LEVEL: Logging verbosity (DEBUG, INFO, WARNING, ERROR)
 - DOCLING_CONFIG_FILE: Optional path to a configuration file
-- DOCLING_OUTPUT_FORMAT: Output format (json, md, html, sql)
+- DOCLING_OUTPUT_FORMAT: Output format (json, md, html)
 - DOCLING_IMAGE_BASE_URL: Base URL for image links in output
 """
+# Fix docling imports first to ensure proper paths
+import sys
+import os
+from pathlib import Path
 
+# Add the current directory to sys.path
+current_dir = Path(os.path.dirname(os.path.abspath(__file__)))
+if str(current_dir) not in sys.path:
+    sys.path.insert(0, str(current_dir))
 
-# Load environment variables first
+# Add src directory to sys.path if it exists
+src_dir = current_dir / "src"
+if src_dir.exists() and str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
+import docling_fix
+
+# Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
 
-# Fix docling imports
-import docling_fix
 # Standard library imports
 import argparse
 import json
 import logging
-import os
-import sys
 import time
-from pathlib import Path
 from typing import Dict, List, Any, Optional, Union
 
 # Import the logger configuration
@@ -42,20 +52,15 @@ from parse_helper import process_pdf_document, save_output
 # Import the output formatter
 from output_formatter import OutputFormatter
 
-# Import the SQL formatter
-from src.sql_formatter import SQLFormatter
-print ("PYTHONPATH:", os.environ.get("PYTHONPATH"))
-# Import docling library components
-from docling.docling.document_converter import DocumentConverter
-from docling.docling.datamodel.base_models import InputFormat
-from docling.docling.document_converter import PdfFormatOption
-from docling.docling.datamodel.pipeline_options import PdfPipelineOptions
-
-
-# Import the element map builder
+# Try to import docling modules - these should work now with docling_fix
 try:
+    from docling.document_converter import DocumentConverter
+    from docling.datamodel.base_models import InputFormat
+    from docling.document_converter import PdfFormatOption
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
+    
+    # Local module imports
     from element_map_builder import build_element_map
-    # Import the content extractor module
     from content_extractor import (
         extract_text_content, 
         extract_table_content, 
@@ -64,7 +69,6 @@ try:
         find_sibling_text_in_sequence, 
         get_captions
     )
-    # Import the metadata extractor module
     from metadata_extractor import (
         convert_bbox,
         extract_page_number,
@@ -72,14 +76,14 @@ try:
         build_metadata_object,
         extract_full_metadata
     )
-    # Import the PDFImageExtractor class
     from pdf_image_extractor import PDFImageExtractor, ImageContentRelationship
+    
+    DOCLING_IMPORTS_OK = True
 except ImportError as e:
-    logging.error(f"Error importing local modules: {e}")
-    sys.exit(1)
-
-# Import the format_standardized_output module
-from format_standardized_output import save_standardized_output
+    logger = logging.getLogger(__name__)
+    logger.error(f"Error importing docling modules: {e}")
+    logger.error("Fix the import issues before continuing")
+    DOCLING_IMPORTS_OK = False
 
 
 class Configuration:
@@ -102,16 +106,6 @@ class Configuration:
         self.include_metadata = True
         self.include_page_breaks = True
         self.include_captions = True
-        
-        # Image extraction configuration
-        self.extract_images = True
-        self.enhance_process_images = True
-        self.process_images_in_parallel = True
-        self.image_min_size = 100
-        self.image_scale_factor = 2.0
-        self.image_format = "PNG"
-        self.image_quality = 95
-        self.description_token_limit = 1024
         
         # Load environment variables
         self._load_from_env()
@@ -148,31 +142,6 @@ class Configuration:
             
         if os.environ.get("DOCLING_INCLUDE_CAPTIONS"):
             self.include_captions = os.environ.get("DOCLING_INCLUDE_CAPTIONS").lower() in ("true", "yes", "1")
-            
-        # Image extraction config
-        if os.environ.get("DOCLING_EXTRACT_IMAGES"):
-            self.extract_images = os.environ.get("DOCLING_EXTRACT_IMAGES").lower() in ("true", "yes", "1")
-            
-        if os.environ.get("DOCLING_ENHANCE_PROCESS_IMAGES"):
-            self.enhance_process_images = os.environ.get("DOCLING_ENHANCE_PROCESS_IMAGES").lower() in ("true", "yes", "1")
-            
-        if os.environ.get("DOCLING_PROCESS_IMAGES_IN_PARALLEL"):
-            self.process_images_in_parallel = os.environ.get("DOCLING_PROCESS_IMAGES_IN_PARALLEL").lower() in ("true", "yes", "1")
-            
-        if os.environ.get("DOCLING_IMAGE_MIN_SIZE"):
-            self.image_min_size = int(os.environ.get("DOCLING_IMAGE_MIN_SIZE"))
-            
-        if os.environ.get("DOCLING_IMAGE_SCALE_FACTOR"):
-            self.image_scale_factor = float(os.environ.get("DOCLING_IMAGE_SCALE_FACTOR"))
-            
-        if os.environ.get("DOCLING_IMAGE_FORMAT"):
-            self.image_format = os.environ.get("DOCLING_IMAGE_FORMAT")
-            
-        if os.environ.get("DOCLING_IMAGE_QUALITY"):
-            self.image_quality = int(os.environ.get("DOCLING_IMAGE_QUALITY"))
-            
-        if os.environ.get("DOCLING_DESCRIPTION_TOKEN_LIMIT"):
-            self.description_token_limit = int(os.environ.get("DOCLING_DESCRIPTION_TOKEN_LIMIT"))
     
     def update_from_args(self, args):
         """
@@ -205,31 +174,6 @@ class Configuration:
             
         if args.include_captions is not None:
             self.include_captions = args.include_captions
-            
-        # Image extraction config
-        if hasattr(args, 'extract_images') and args.extract_images is not None:
-            self.extract_images = args.extract_images
-            
-        if hasattr(args, 'enhance_process_images') and args.enhance_process_images is not None:
-            self.enhance_process_images = args.enhance_process_images
-            
-        if hasattr(args, 'process_images_in_parallel') and args.process_images_in_parallel is not None:
-            self.process_images_in_parallel = args.process_images_in_parallel
-            
-        if hasattr(args, 'image_min_size') and args.image_min_size is not None:
-            self.image_min_size = args.image_min_size
-            
-        if hasattr(args, 'image_scale_factor') and args.image_scale_factor is not None:
-            self.image_scale_factor = args.image_scale_factor
-            
-        if hasattr(args, 'image_format') and args.image_format is not None:
-            self.image_format = args.image_format
-            
-        if hasattr(args, 'image_quality') and args.image_quality is not None:
-            self.image_quality = args.image_quality
-            
-        if hasattr(args, 'description_token_limit') and args.description_token_limit is not None:
-            self.description_token_limit = args.description_token_limit
     
     def validate(self):
         """
@@ -256,18 +200,9 @@ class Configuration:
             errors.append(f"Config file not found: {self.config_file}")
             
         # Validate output format
-        valid_formats = ["json", "md", "html", "csv", "sql"]
+        valid_formats = ["json", "md", "html", "csv"]
         if self.output_format.lower() not in valid_formats:
             errors.append(f"Invalid output format: {self.output_format}. Must be one of {valid_formats}")
-            
-        # Validate image extraction settings
-        if self.extract_images:
-            if self.image_min_size < 0:
-                errors.append("Image minimum size cannot be negative")
-            if self.image_scale_factor <= 0:
-                errors.append("Image scale factor must be positive")
-            if self.image_quality < 1 or self.image_quality > 100:
-                errors.append("Image quality must be between 1 and 100")
         
         return errors
 
@@ -284,23 +219,6 @@ class Configuration:
             'image_base_url': self.image_base_url,
             'include_page_breaks': self.include_page_breaks,
             'include_captions': self.include_captions
-        }
-        
-    def get_image_extraction_config(self):
-        """
-        Get configuration values for image extraction.
-
-        Returns:
-            Dict[str, Any]: Dictionary of image extraction configuration
-        """
-        return {
-            "extract_images": self.extract_images,
-            "enhance_process_images": self.enhance_process_images,
-            "process_images_in_parallel": self.process_images_in_parallel,
-            "image_min_size": self.image_min_size,
-            "image_scale_factor": self.image_scale_factor,
-            "image_format": self.image_format,
-            "image_quality": self.image_quality,
         }
 
 
@@ -333,7 +251,7 @@ def parse_arguments():
     
     parser.add_argument(
         "--output_format", "-f",
-        choices=["json", "md", "html", "csv", "sql"],
+        choices=["json", "md", "html", "csv"],
         help="Output format (default: json)"
     )
     
@@ -381,56 +299,6 @@ def parse_arguments():
         help="Exclude captions from tables and images"
     )
     
-    # Image extraction configuration
-    parser.add_argument(
-        "--extract_images",
-        type=bool,
-        help="Whether to extract images from the PDF (default: True)",
-    )
-    
-    parser.add_argument(
-        "--enhance_process_images",
-        type=bool,
-        help="Use enhanced image processing with AI descriptions (default: True)",
-    )
-    
-    parser.add_argument(
-        "--process_images_in_parallel",
-        type=bool,
-        help="Process images in parallel (default: True)",
-    )
-    
-    parser.add_argument(
-        "--image_min_size",
-        type=int,
-        help="Minimum size of images to extract in pixels (default: 100)",
-    )
-    
-    parser.add_argument(
-        "--image_scale_factor",
-        type=float,
-        help="Scale factor for image extraction (default: 2.0)",
-    )
-    
-    parser.add_argument(
-        "--image_format",
-        type=str,
-        choices=["PNG", "JPEG", "WEBP"],
-        help="Format for extracted images (default: PNG)",
-    )
-    
-    parser.add_argument(
-        "--image_quality",
-        type=int,
-        help="Quality for JPEG/WEBP images (1-100, default: 95)",
-    )
-    
-    parser.add_argument(
-        "--description_token_limit",
-        type=int,
-        help="Token limit for AI descriptions (default: 1024)",
-    )
-    
     # Set default values to None to distinguish between
     # not provided and explicitly set to False
     parser.set_defaults(
@@ -452,10 +320,15 @@ def main():
     Returns:
         int: 0 for success, 1 for error
     """
+    # Set up global logger reference
+    global logger
+    
     try:
-        # Load environment variables from .env file if it exists
-        load_dotenv()
-        
+        # Check if docling imports succeeded
+        if not DOCLING_IMPORTS_OK:
+            logger.error("Required docling modules could not be imported. Exiting.")
+            return 1
+            
         # Parse command line arguments
         args = parse_arguments()
         
@@ -471,7 +344,6 @@ def main():
             return 1
         
         # Set up logging
-        global logger
         logger = setup_logging(config.log_level)
         
         logger.info(f"Starting PDF document processing")
@@ -484,28 +356,11 @@ def main():
         output_dir_path.mkdir(parents=True, exist_ok=True)
         
         # Process the PDF document
-        docling_document = process_pdf_document(
-            config.pdf_path, 
-            config.output_dir, 
-            config.config_file,
-            image_extraction_config=config.get_image_extraction_config()
-        )
-        
-        # Handle the output based on the configured format
-        if config.output_format.lower() == "sql":
-            # Use SQL formatter for database-compatible output
-            sql_formatter = SQLFormatter()
-            output_file = sql_formatter.save_formatted_output(
-                docling_document,
-                config.output_dir
-            )
-            logger.info(f"SQL output saved to {output_file}")
-            return 0
+        docling_document = process_pdf_document(config.pdf_path, config.output_dir, config.config_file)
         
         # Save the output as JSON (standard format)
         output_file = save_output(docling_document, config.output_dir)
         
-        # If the format is not SQL, we continue with standard formatter
         # Load the JSON output for formatting
         with open(output_file, 'r', encoding='utf-8') as f:
             document_data = json.load(f)
@@ -520,17 +375,9 @@ def main():
             config.output_format
         )
         
-        # Create and save the standardized output file required by the PRD
-        standardized_output_file = save_standardized_output(
-            document_data,
-            config.output_dir,
-            config.pdf_path
-        )
-        
         logger.info(f"Document processing completed successfully")
         logger.info(f"Standard output saved to: {output_file}")
         logger.info(f"Formatted output saved to: {formatted_output_file}")
-        logger.info(f"Standardized output saved to: {standardized_output_file}")
         
         return 0
     except Exception as e:

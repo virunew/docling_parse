@@ -168,53 +168,81 @@ def build_metadata_object(
         - docling_ref: Element reference in the document
         - For images: mimetype, width, height, and OCR text
     """
-    metadata = {}
-    
-    # Get hierarchical breadcrumb
-    breadcrumb = get_hierarchical_breadcrumb(element, flattened_sequence)
-    metadata['breadcrumb'] = breadcrumb
-    
-    # Get page number
-    page_no = extract_page_number(element)
-    if page_no is not None:
-        metadata['page_no'] = page_no
-    
-    # Get bounding box (raw format)
-    bbox = element.get('bounds', {})
-    if not bbox:
-        # Try to get from metadata or prov
-        element_metadata = element.get('metadata', {})
-        bbox = element_metadata.get('bounds', {})
-        
-        if not bbox:
-            prov = element.get('prov', {})
-            bbox = prov.get('bbox', {})
-    
-    if bbox:
-        metadata['bbox_raw'] = {
-            'l': bbox.get('l', 0),
-            't': bbox.get('t', 0),
-            'r': bbox.get('r', 0),
-            'b': bbox.get('b', 0)
+    # Check if element is a dictionary
+    if not isinstance(element, dict):
+        logger.warning(f"Non-dictionary element received in build_metadata_object: {type(element)}")
+        # Create a minimal metadata object
+        return {
+            'docling_label': 'unknown',
+            'breadcrumb': 'unknown'
         }
     
+    metadata = {}
+    
+    # Filter the flattened sequence to ensure only dictionary elements are processed
+    filtered_sequence = [elem for elem in flattened_sequence if isinstance(elem, dict)]
+    
+    # Get hierarchical breadcrumb
+    try:
+        breadcrumb = get_hierarchical_breadcrumb(element, filtered_sequence)
+        metadata['breadcrumb'] = breadcrumb
+    except Exception as e:
+        logger.warning(f"Error generating breadcrumb: {e}")
+        metadata['breadcrumb'] = "unknown"
+    
+    # Get page number
+    try:
+        page_no = extract_page_number(element)
+        if page_no is not None:
+            metadata['page_no'] = page_no
+    except Exception as e:
+        logger.warning(f"Error extracting page number: {e}")
+    
+    # Get bounding box (raw format)
+    try:
+        bbox = element.get('bounds', {})
+        if not bbox:
+            # Try to get from metadata or prov
+            element_metadata = element.get('metadata', {})
+            bbox = element_metadata.get('bounds', {})
+            
+            if not bbox:
+                prov = element.get('prov', {})
+                bbox = prov.get('bbox', {})
+        
+        if bbox:
+            metadata['bbox_raw'] = {
+                'l': bbox.get('l', 0),
+                't': bbox.get('t', 0),
+                'r': bbox.get('r', 0),
+                'b': bbox.get('b', 0)
+            }
+    except Exception as e:
+        logger.warning(f"Error extracting bounding box: {e}")
+    
     # Get caption for tables and images
-    element_type = element.get('metadata', {}).get('type', '').lower()
-    if 'table' in element_type or 'image' in element_type or 'picture' in element_type:
-        caption = get_captions(element, flattened_sequence)
-        if caption:
-            metadata['caption'] = caption
+    try:
+        element_type = element.get('metadata', {}).get('type', '').lower()
+        if 'table' in element_type or 'image' in element_type or 'picture' in element_type:
+            caption = get_captions(element, filtered_sequence)
+            if caption:
+                metadata['caption'] = caption
+    except Exception as e:
+        logger.warning(f"Error extracting caption: {e}")
     
     # Get context snippets (before and after)
-    context_before, context_after = find_sibling_text_in_sequence(
-        element, flattened_sequence, context_chars=context_chars
-    )
-    
-    if context_before:
-        metadata['context_before'] = context_before
-    
-    if context_after:
-        metadata['context_after'] = context_after
+    try:
+        context_before, context_after = find_sibling_text_in_sequence(
+            element, filtered_sequence, context_chars=context_chars
+        )
+        
+        if context_before:
+            metadata['context_before'] = context_before
+        
+        if context_after:
+            metadata['context_after'] = context_after
+    except Exception as e:
+        logger.warning(f"Error extracting context: {e}")
     
     # Get docling label and reference
     element_label = element.get('label', '')
@@ -226,9 +254,12 @@ def build_metadata_object(
         metadata['docling_ref'] = element_ref
     
     # Add image-specific metadata if this is an image
-    if 'image' in element_type or 'picture' in element_type:
-        image_metadata = extract_image_metadata(element)
-        metadata.update(image_metadata)
+    try:
+        if 'image' in element_type or 'picture' in element_type:
+            image_metadata = extract_image_metadata(element)
+            metadata.update(image_metadata)
+    except Exception as e:
+        logger.warning(f"Error extracting image metadata: {e}")
     
     return metadata
 
@@ -248,45 +279,82 @@ def extract_full_metadata(
     Returns:
         Dictionary with complete metadata ready for database storage
     """
-    # Build the basic metadata object
-    metadata = build_metadata_object(element, flattened_sequence)
+    # Log the element type for debugging
+    logger.debug(f"Extracting metadata for element type: {type(element)}")
     
-    # Get the converted bounding box
-    bbox_raw = metadata.get('bbox_raw', {})
-    converted_bbox = convert_bbox(bbox_raw, to_integers=True)
+    # Check if element is a dictionary
+    if not isinstance(element, dict):
+        logger.warning(f"Non-dictionary element received: {type(element)}")
+        # Return minimal metadata to avoid errors
+        return {
+            "coords_x": 0, "coords_y": 0, "coords_cx": 0, "coords_cy": 0,
+            "master_index": 0, "master_index2": None,
+            "special_field1": "{}", "special_field2": "unknown",
+            "text_search": "", "metadata": {}
+        }
     
-    # Start with the converted bounding box
-    result = converted_bbox.copy()
+    # Log element keys for debugging
+    if hasattr(element, "keys"):
+        logger.debug(f"Element keys: {list(element.keys())}")
     
-    # Add page number as master_index
-    result['master_index'] = metadata.get('page_no', 0)
-    result['master_index2'] = None
+    # Filter the flattened sequence to ensure only dictionary elements are processed
+    filtered_sequence = [elem for elem in flattened_sequence if isinstance(elem, dict)]
+    logger.debug(f"Filtered sequence has {len(filtered_sequence)} elements")
     
-    # Add original metadata as special_field1 (as JSON string)
-    # In a real implementation, this would be properly JSON serialized
-    result['special_field1'] = str(metadata)
-    
-    # Add breadcrumb as special_field2
-    result['special_field2'] = metadata.get('breadcrumb', '')
-    
-    # Set text_search to caption or actual text content for search indexing
-    caption = metadata.get('caption', '')
-    if caption:
-        result['text_search'] = caption
-    else:
-        result['text_search'] = extract_text_content(element)
-    
-    # Add document info if provided
-    if doc_info:
-        # Add file_type from doc mimetype
-        result['file_type'] = doc_info.get('mimetype', 'application/pdf')
-        # Add file_source from doc filename
-        result['file_source'] = doc_info.get('filename', '')
-    
-    # Set the full metadata object
-    result['metadata'] = metadata
-    
-    return result
+    try:
+        # Build the basic metadata object
+        metadata = build_metadata_object(element, filtered_sequence)
+        
+        # Get the converted bounding box
+        bbox_raw = metadata.get('bbox_raw', {})
+        converted_bbox = convert_bbox(bbox_raw, to_integers=True)
+        
+        # Start with the converted bounding box
+        result = converted_bbox.copy()
+        
+        # Add page number as master_index
+        result['master_index'] = metadata.get('page_no', 0)
+        result['master_index2'] = None
+        
+        # Add original metadata as special_field1 (as JSON string)
+        # In a real implementation, this would be properly JSON serialized
+        result['special_field1'] = str(metadata)
+        
+        # Add breadcrumb as special_field2
+        result['special_field2'] = metadata.get('breadcrumb', '')
+        
+        # Set text_search to caption or actual text content for search indexing
+        caption = metadata.get('caption', '')
+        if caption:
+            result['text_search'] = caption
+        else:
+            try:
+                result['text_search'] = extract_text_content(element)
+            except Exception as text_err:
+                logger.warning(f"Error extracting text content: {text_err}")
+                result['text_search'] = ""
+        
+        # Add document info if provided
+        if doc_info:
+            # Add file_type from doc mimetype
+            result['file_type'] = doc_info.get('mimetype', 'application/pdf')
+            # Add file_source from doc filename
+            result['file_source'] = doc_info.get('filename', '')
+        
+        # Set the full metadata object
+        result['metadata'] = metadata
+        
+        return result
+        
+    except Exception as e:
+        logger.exception(f"Error in extract_full_metadata: {e}")
+        # Return minimal metadata to avoid errors
+        return {
+            "coords_x": 0, "coords_y": 0, "coords_cx": 0, "coords_cy": 0,
+            "master_index": 0, "master_index2": None,
+            "special_field1": "{}", "special_field2": "error",
+            "text_search": "", "metadata": {"error": str(e)}
+        }
 
 # Example usage
 if __name__ == "__main__":

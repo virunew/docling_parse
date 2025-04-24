@@ -202,6 +202,64 @@ The standardized output format has been extensively tested with:
 
 All tests demonstrate that the standardized output format correctly handles text, tables, and images, properly separates content and furniture elements, and includes all required metadata fields.
 
+## SQL Format Output
+
+The parser supports SQL-compatible output formats for database integration, with the following options:
+
+### Basic SQL Format
+
+Generate SQL-compatible JSON output:
+
+```bash
+python parse_main.py --input your-document.pdf --output-dir output --output-format sql
+```
+
+This creates a JSON file structured for easy import into SQL databases with properly organized document chunks, furniture elements, and metadata.
+
+### SQL Dialect Options
+
+You can specify a SQL dialect to use for identifier quoting and string escaping:
+
+```bash
+python parse_main.py --input your-document.pdf --output-dir output --output-format sql --sql-dialect mysql
+```
+
+Supported dialects:
+- `postgresql` (default): Uses double quotes for identifiers and standard PostgreSQL escaping
+- `mysql`: Uses backticks for identifiers and MySQL-specific escaping
+- `sqlite`: Uses double quotes for identifiers and SQLite-specific escaping
+
+### SQL INSERT Statements
+
+Generate ready-to-use SQL INSERT statements:
+
+```bash
+python parse_main.py --input your-document.pdf --output-dir output --output-format sql --sql-inserts
+```
+
+This creates a `.sql` file containing INSERT statements for document metadata, content chunks, and furniture elements, which can be directly imported into a database.
+
+### Standardized Format Option
+
+Generate output using the standardized format that conforms to the fusa_library schema:
+
+```bash
+python parse_main.py --input your-document.pdf --output-dir output --output-format sql --standardized-format
+```
+
+The standardized format ensures compatibility with database schemas that expect specific field structures and naming conventions. It can be combined with the `--sql-inserts` option to generate compatible INSERT statements:
+
+```bash
+python parse_main.py --input your-document.pdf --output-dir output --output-format sql --standardized-format --sql-inserts
+```
+
+### Environment Variables for SQL Format
+
+- `DOCLING_OUTPUT_FORMAT`: Set to "sql" to use SQL format
+- `DOCLING_SQL_DIALECT`: SQL dialect to use (postgresql, mysql, sqlite)
+- `DOCLING_STANDARDIZED_FORMAT`: Set to "true" to use standardized format
+- `DOCLING_SQL_INSERTS`: Set to "true" to generate SQL INSERT statements
+
 ## Development
 
 ### Project Structure
