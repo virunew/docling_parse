@@ -217,12 +217,12 @@ def extract_document_metadata(docling_document: DoclingDocument) -> Dict[str, An
     
     return metadata
 
-def serialize_docling_document(docling_document: DoclingDocument) -> Dict[str, Any]:
+def serialize_docling_document(docling_document: Union[DoclingDocument, Dict[str, Any]]) -> Dict[str, Any]:
     """
     Serialize a DoclingDocument to a dictionary, handling any exceptions.
     
     Args:
-        docling_document: The DoclingDocument
+        docling_document: The DoclingDocument or a dictionary representation
         
     Returns:
         Dict[str, Any]: Dictionary representation of the document
@@ -231,6 +231,11 @@ def serialize_docling_document(docling_document: DoclingDocument) -> Dict[str, A
         TypeError: If the document cannot be serialized
     """
     try:
+        # If docling_document is already a dictionary, just return it
+        if isinstance(docling_document, dict):
+            logger.info("Input is already a dictionary, skipping serialization")
+            return docling_document
+            
         # Use the document's export_to_dict method if available
         if hasattr(docling_document, 'export_to_dict'):
             return docling_document.export_to_dict()

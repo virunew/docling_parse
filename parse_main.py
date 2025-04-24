@@ -52,6 +52,9 @@ from parse_helper import process_pdf_document, save_output
 # Import the output formatter
 from output_formatter import OutputFormatter
 
+# Import JSON metadata fixer
+from src.json_metadata_fixer import fix_metadata
+
 # Try to import docling modules - these should work now with docling_fix
 try:
     from docling.document_converter import DocumentConverter
@@ -365,18 +368,30 @@ def main():
         with open(output_file, 'r', encoding='utf-8') as f:
             document_data = json.load(f)
         
+        # Apply metadata fixes to the JSON data
+        logger.info("Applying metadata fixes to the document")
+        fixed_document_data = fix_metadata(document_data, config.output_dir)
+        
+        # Save the fixed document data back to the file
+        fixed_output_file = str(Path(config.output_dir) / "fixed_document.json")
+        with open(fixed_output_file, 'w', encoding='utf-8') as f:
+            json.dump(fixed_document_data, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"Fixed document data saved to: {fixed_output_file}")
+        
         # Create a formatter with the specified configuration
         formatter = OutputFormatter(config.get_formatter_config())
         
-        # Save the formatted output
+        # Save the formatted output using the fixed document data
         formatted_output_file = formatter.save_formatted_output(
-            document_data,
+            fixed_document_data,
             config.output_dir,
             config.output_format
         )
         
         logger.info(f"Document processing completed successfully")
         logger.info(f"Standard output saved to: {output_file}")
+        logger.info(f"Fixed output saved to: {fixed_output_file}")
         logger.info(f"Formatted output saved to: {formatted_output_file}")
         
         return 0
@@ -386,4 +401,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main()) 
+    sys.exit(main())

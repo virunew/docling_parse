@@ -1,300 +1,134 @@
-# Docling PDF Parser
+# Docling Parse
 
-This project provides enhanced PDF document parsing capabilities using the Docling library. It extracts text, images, tables, and metadata from PDF documents and structures them into a standardized format for downstream applications.
+A Python tool for parsing PDF documents using the Docling library, extracting content with proper structure, and generating standardized output.
 
-## Features
+## Key Features
 
-- PDF document parsing with Docling's powerful document understanding capabilities
-- Enhanced image extraction with parallel processing
-- Automatic image-text relationship detection
-- Detailed metadata extraction and organization
-- Robust error handling and retry mechanisms
-- Standardized JSON output format
+- Processes PDF documents using the Docling library
+- Extracts text, tables, and images with proper formatting
+- Generates hierarchical breadcrumb paths based on section headers
+- Saves images as external files instead of embedding them in JSON
+- Filters out furniture elements (headers, footers) from context snippets
+- Outputs in various formats: JSON, Markdown, HTML, CSV
+
+## Recent Fixes
+
+This version includes important fixes for three major issues:
+
+1. **External Image Storage**: Images are now saved as external files instead of being embedded as base64 data in the JSON. This significantly reduces the size of the output JSON file and improves performance.
+
+2. **Complete Element Information**: All document elements (text, tables, images) are now properly identified and included in the element map, ensuring no content is missed.
+
+3. **Improved Breadcrumbs and Context**: 
+   - Breadcrumbs now correctly represent the document's hierarchical structure based on section headers
+   - Furniture elements (headers, footers, page numbers) are filtered out from context snippets to provide cleaner, more relevant context
 
 ## Installation
 
 ### Prerequisites
 
-- Python 3.8 or higher
-- Docling library (included in the repository)
+- Python 3.7+
+- Docling library (included)
 
 ### Setup
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-org/docling_parse.git
+   git clone https://github.com/yourusername/docling_parse.git
    cd docling_parse
    ```
 
-2. Create a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. Install the required dependencies:
+2. Install requirements:
    ```bash
    pip install -r requirements.txt
    ```
 
 ## Usage
 
-### Basic Usage
+### Running from Command Line
 
-Process a PDF file with default settings:
-
-```bash
-python src/parse_main.py --pdf_path your-document.pdf --output_dir output
-```
-
-### Configuration
-
-You can customize the parsing process by providing a configuration file:
+Use the `run_parser.py` script for the simplest way to run the parser:
 
 ```bash
-python src/parse_main.py --pdf_path your-document.pdf --output_dir output --config_file config.json
+python run_parser.py input.pdf output_dir --format json
 ```
 
-Example configuration file:
-```json
-{
-  "pdf_pipeline_options": {
-    "images_scale": 2.0,
-    "generate_page_images": true,
-    "generate_picture_images": true,
-    "do_picture_description": true,
-    "do_table_structure": true,
-    "allow_external_plugins": true
-  },
-  "image_extraction": {
-    "max_workers": 8,
-    "max_retries": 3,
-    "processing_timeout": 300,
-    "retry_delay": 1.0,
-    "backoff_factor": 2.0
-  }
-}
-```
+### Arguments
 
-### Environment Variables
+- `pdf_path`: Path to the input PDF file (required)
+- `output_dir`: Directory for output files (required)
+- `--format`: Output format (choices: json, md, html, csv; default: json)
+- `--log_level`: Logging verbosity level (choices: DEBUG, INFO, WARNING, ERROR, CRITICAL; default: INFO)
 
-You can also configure the parser using environment variables:
+### Direct Usage of parse_main.py
 
-- `DOCLING_PDF_PATH`: Path to input PDF file
-- `DOCLING_OUTPUT_DIR`: Directory for output files
-- `DOCLING_LOG_LEVEL`: Logging verbosity (DEBUG, INFO, WARNING, ERROR)
-- `DOCLING_CONFIG_FILE`: Optional path to a configuration file
-
-These can be set in a `.env` file in the project root.
-
-## Output Structure
-
-The parser generates the following outputs:
-
-- `{document_name}.json`: The main output file containing the entire document structure
-- `{document_name}/element_map.json`: A map of all document elements with their relationships
-- `{document_name}/element_map_with_metadata.json`: Enhanced element map with metadata
-- `{document_name}/images_data.json`: Metadata about extracted images
-- `{document_name}/images/`: Directory containing all extracted images
-
-### JSON Structure
-
-The main output file has the following structure:
-
-```json
-{
-  "name": "document_name",
-  "texts": [...],
-  "tables": [...],
-  "pictures": [...],
-  "metadata": {...},
-  "images_data": {
-    "images": [
-      {
-        "metadata": {
-          "id": "picture_1",
-          "format": "image/png",
-          "file_path": "document_name/images/picture_1.png",
-          "page": 1,
-          "width": 500,
-          "height": 300
-        }
-      }
-    ],
-    "extraction_stats": {
-      "successful": 10,
-      "failed": 0,
-      "retried": 2,
-      "total_time": 5.23
-    }
-  }
-}
-```
-
-## Enhanced Image Extraction
-
-The image extraction module provides several advanced features:
-
-- **Parallel Processing**: Extracts images concurrently for improved performance
-- **Automatic Retries**: Retries failed extractions with exponential backoff
-- **Error Resilience**: Continues processing even if some images fail
-- **Image-Text Relationships**: Analyzes relationships between images and surrounding text
-- **Detailed Statistics**: Provides extraction metrics for debugging and monitoring
-
-Configure the image extraction process via the `image_extraction` section in the config file:
-
-```json
-{
-  "image_extraction": {
-    "max_workers": 8,        // Number of parallel workers
-    "max_retries": 3,        // Number of retry attempts for failed extractions
-    "processing_timeout": 300, // Timeout for the entire process in seconds
-    "retry_delay": 1.0,      // Initial delay between retries in seconds
-    "backoff_factor": 2.0    // Factor by which delay increases with each retry
-  }
-}
-```
-
-## Standardized Output Format
-
-The standardized output format is a structured representation of the document content that follows the specified schema requirements. It consists of:
-
-1. **Chunks Array**: Content elements from the document, organized with the following fields:
-   - `block_id`: Sequential identifier
-   - `content_type`: "text", "table", or "image"
-   - `master_index`: Page number
-   - `coords_x/y/cx/cy`: Position and size on the page
-   - `text_block`: Text content or image caption with context
-   - `table_block`: JSON string of table data
-   - `external_files`: Path to image files
-   - `header_text`: Breadcrumb navigation
-   - `special_field1`: JSON string of additional metadata
-   - Plus additional fields as required by the schema
-
-2. **Furniture Array**: Contains page headers, footers, and other elements not part of the main content.
-
-3. **Source Metadata**: Information about the source document including filename and mimetype.
-
-### Usage
-
-The standardized output is generated by the `save_standardized_output` function, which processes the document data and creates the required JSON structure:
-
-```python
-from src.format_standardized_output import save_standardized_output
-
-# Process document data
-standardized_output_file = save_standardized_output(
-    document_data,
-    output_directory,
-    pdf_file_path
-)
-```
-
-The standardized output is saved to a JSON file in the specified output directory, with the filename pattern `{document_name}_standardized.json`.
-
-### Testing
-
-The standardized output format has been extensively tested with:
-- Basic unit tests for each component function
-- Complex document tests with tables and images
-- Integration tests to verify proper inclusion in the main pipeline
-- Standalone tests to validate format structure and requirements
-
-All tests demonstrate that the standardized output format correctly handles text, tables, and images, properly separates content and furniture elements, and includes all required metadata fields.
-
-## SQL Format Output
-
-The parser supports SQL-compatible output formats for database integration, with the following options:
-
-### Basic SQL Format
-
-Generate SQL-compatible JSON output:
+For more advanced options, you can use the main parser directly:
 
 ```bash
-python parse_main.py --input your-document.pdf --output-dir output --output-format sql
+python parse_main.py --pdf_path input.pdf --output_dir output --output_format json
 ```
 
-This creates a JSON file structured for easy import into SQL databases with properly organized document chunks, furniture elements, and metadata.
+Additional options:
+- `--include_metadata`/`--no_metadata`: Include/exclude metadata in output
+- `--include_page_breaks`/`--no_page_breaks`: Include/exclude page break markers
+- `--include_captions`/`--no_captions`: Include/exclude captions for tables and images
+- `--image_base_url`: Base URL for image links in output
+- `--config_file`: Path to additional configuration file
 
-### SQL Dialect Options
+## Output Files
 
-You can specify a SQL dialect to use for identifier quoting and string escaping:
+The parser generates several output files:
+
+- `docling_document.json`: Raw output from the Docling library
+- `fixed_document.json`: The document with metadata fixes applied (external image references, proper breadcrumbs, filtered context)
+- `document.json` (or other format based on `--format`): The final formatted output
+
+## Environment Variables
+
+You can set the following environment variables in a `.env` file:
+
+- `DOCLING_PDF_PATH`: Default path to input PDF file
+- `DOCLING_OUTPUT_DIR`: Default directory for output files
+- `DOCLING_LOG_LEVEL`: Default logging verbosity
+- `DOCLING_CONFIG_FILE`: Default path to a configuration file
+- `DOCLING_OUTPUT_FORMAT`: Default output format
+- `DOCLING_IMAGE_BASE_URL`: Default base URL for image links
+- `DOCLING_INCLUDE_METADATA`: Whether to include metadata in output
+- `DOCLING_INCLUDE_PAGE_BREAKS`: Whether to include page break markers
+- `DOCLING_INCLUDE_CAPTIONS`: Whether to include captions for tables and images
+
+## Testing
+
+Run the tests to verify that the parser is working correctly:
 
 ```bash
-python parse_main.py --input your-document.pdf --output-dir output --output-format sql --sql-dialect mysql
+cd tests
+python -m test_integration
 ```
 
-Supported dialects:
-- `postgresql` (default): Uses double quotes for identifiers and standard PostgreSQL escaping
-- `mysql`: Uses backticks for identifiers and MySQL-specific escaping
-- `sqlite`: Uses double quotes for identifiers and SQLite-specific escaping
+This will run integration tests that verify:
+1. Images are properly saved as external files
+2. All element types are correctly identified
+3. Breadcrumbs are generated properly and furniture is filtered from context
 
-### SQL INSERT Statements
+## Project Structure
 
-Generate ready-to-use SQL INSERT statements:
-
-```bash
-python parse_main.py --input your-document.pdf --output-dir output --output-format sql --sql-inserts
-```
-
-This creates a `.sql` file containing INSERT statements for document metadata, content chunks, and furniture elements, which can be directly imported into a database.
-
-### Standardized Format Option
-
-Generate output using the standardized format that conforms to the fusa_library schema:
-
-```bash
-python parse_main.py --input your-document.pdf --output-dir output --output-format sql --standardized-format
-```
-
-The standardized format ensures compatibility with database schemas that expect specific field structures and naming conventions. It can be combined with the `--sql-inserts` option to generate compatible INSERT statements:
-
-```bash
-python parse_main.py --input your-document.pdf --output-dir output --output-format sql --standardized-format --sql-inserts
-```
-
-### Environment Variables for SQL Format
-
-- `DOCLING_OUTPUT_FORMAT`: Set to "sql" to use SQL format
-- `DOCLING_SQL_DIALECT`: SQL dialect to use (postgresql, mysql, sqlite)
-- `DOCLING_STANDARDIZED_FORMAT`: Set to "true" to use standardized format
-- `DOCLING_SQL_INSERTS`: Set to "true" to generate SQL INSERT statements
-
-## Development
-
-### Project Structure
-
-```
-├── docling/              # Docling library
-├── src/
-│   ├── parse_main.py           # Main entry point
-│   ├── parse_helper.py         # Document processing functions
-│   ├── docling_integration.py  # Integration with docling library
-│   ├── element_map_builder.py  # Builds document element map
-│   ├── image_extraction_module.py # Enhanced image extraction
-│   ├── pdf_image_extractor.py  # Base image extraction functionality
-│   ├── metadata_extractor.py   # Extracts element metadata
-│   └── logger_config.py        # Logging configuration
-├── tests/
-│   ├── data/                   # Test data files
-│   ├── test_image_extraction_module.py # Image extraction tests
-│   └── test_integration.py     # Integration tests
-├── requirements.txt      # Dependencies
-└── README.md            # This file
-```
-
-### Running Tests
-
-Run the unit tests with:
-
-```bash
-python -m unittest discover tests
-```
+- `parse_main.py`: Main entry point for the application
+- `src/`: Directory containing the parser modules
+  - `json_metadata_fixer.py`: Module to fix metadata issues in the parsed document
+  - `content_extractor.py`: Extract content from different element types
+  - `metadata_extractor.py`: Extract and format metadata
+  - `element_map_builder.py`: Build a map of elements from the document
+  - `pdf_image_extractor.py`: Extract images from PDF documents
+  - `parse_helper.py`: Helper functions for parsing
+  - `output_formatter.py`: Format output in different formats
+- `tests/`: Directory containing tests
+- `run_parser.py`: Simple script to run the parser
 
 ## License
 
-[Specify the license here]
+[MIT License](LICENSE)
 
-## Acknowledgements
+## Contributing
 
-This project builds upon the powerful Docling document understanding library.
+Contributions are welcome! Please feel free to submit a Pull Request.
