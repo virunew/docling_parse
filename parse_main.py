@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Fix docling imports
-#import docling_fix
+import docling_fix
 # Standard library imports
 import argparse
 import json
@@ -46,7 +46,7 @@ from output_formatter import OutputFormatter
 from src.sql_formatter import SQLFormatter
 print ("PYTHONPATH:", os.environ.get("PYTHONPATH"))
 # Import docling library components
-from docling.docling.document_converter import  DocumentConverter
+from docling.docling.document_converter import DocumentConverter
 from docling.docling.datamodel.base_models import InputFormat
 from docling.docling.document_converter import PdfFormatOption
 from docling.docling.datamodel.pipeline_options import PdfPipelineOptions

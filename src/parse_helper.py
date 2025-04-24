@@ -83,7 +83,7 @@ def save_output(docling_document, output_dir):
         raise
 
 
-def process_pdf_document(pdf_path, output_dir, config_file=None):
+def process_pdf_document(pdf_path, output_dir, config_file=None, image_extraction_config=None):
     """
     Process a PDF document and extract its content.
     
@@ -91,6 +91,7 @@ def process_pdf_document(pdf_path, output_dir, config_file=None):
         pdf_path: Path to the PDF document
         output_dir: Directory to save output files
         config_file: Path to the configuration file (optional)
+        image_extraction_config: Configuration for image extraction (optional)
     
     Returns:
         DoclingDocument: The converted document object
@@ -176,7 +177,7 @@ def process_pdf_document(pdf_path, output_dir, config_file=None):
         logger.info("Extracting images from the PDF document...")
         
         # Load config for image extraction from file if available
-        image_extraction_config = {
+        default_image_extraction_config = {
             'images_scale': 2.0,
             'do_picture_description': True,
             'do_table_structure': True,
@@ -185,6 +186,12 @@ def process_pdf_document(pdf_path, output_dir, config_file=None):
             'max_retries': 3,  # Retry failed image extractions up to 3 times
             'processing_timeout': 300  # 5 minutes timeout for large documents
         }
+        
+        # If image_extraction_config was provided, use it to override defaults
+        if image_extraction_config:
+            logger.info("Using provided image extraction configuration")
+            for key, value in image_extraction_config.items():
+                default_image_extraction_config[key] = value
         
         # If config_file is provided, try to load image extraction settings
         if config_file:
@@ -195,7 +202,7 @@ def process_pdf_document(pdf_path, output_dir, config_file=None):
                 # Update config with values from file if they exist
                 if 'image_extraction' in file_config:
                     for key, value in file_config['image_extraction'].items():
-                        image_extraction_config[key] = value
+                        default_image_extraction_config[key] = value
                     logger.info(f"Loaded image extraction configuration from {config_file}")
             except Exception as config_err:
                 logger.warning(f"Error loading config file {config_file}: {config_err}")
@@ -203,7 +210,7 @@ def process_pdf_document(pdf_path, output_dir, config_file=None):
         # Extract images using the enhanced module
         try:
             logger.info("Using enhanced image extraction with parallel processing")
-            images_data = process_pdf_for_images(pdf_path, output_path, image_extraction_config)
+            images_data = process_pdf_for_images(pdf_path, output_path, default_image_extraction_config)
             
             # Log extraction statistics if available
             if 'extraction_stats' in images_data:
@@ -220,7 +227,7 @@ def process_pdf_document(pdf_path, output_dir, config_file=None):
             # Fallback to legacy image extraction directly with PDFImageExtractor
             try:
                 logger.info("Attempting legacy image extraction as fallback")
-                image_extractor = PDFImageExtractor(image_extraction_config)
+                image_extractor = PDFImageExtractor(default_image_extraction_config)
                 images_data = image_extractor.extract_images(pdf_path)
                 logger.info(f"Successfully extracted {len(images_data.get('images', []))} images using legacy extractor")
                 

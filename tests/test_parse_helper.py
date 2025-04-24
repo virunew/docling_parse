@@ -344,5 +344,63 @@ class TestParseHelper(unittest.TestCase):
                     "external_path in saved JSON doesn't match expected"
                 )
 
+    @patch('src.parse_helper.convert_pdf_document')
+    @patch('src.parse_helper.create_pdf_pipeline_options')
+    @patch('src.parse_helper.build_element_map')
+    @patch('src.parse_helper.extract_full_metadata')
+    @patch('src.parse_helper.process_pdf_for_images')
+    @patch('src.parse_helper.json.dump')
+    @patch('builtins.open', new_callable=mock_open)
+    def test_process_pdf_document_with_image_config(self, mock_file, mock_json_dump, 
+                                                mock_process_images, mock_extract_metadata,
+                                                mock_build_element_map, mock_create_options,
+                                                mock_convert_pdf):
+        """Test process_pdf_document with image_extraction_config."""
+        # Set up mocks
+        mock_doc = MagicMock()
+        mock_doc.name = "test_doc"
+        mock_convert_pdf.return_value = mock_doc
+        
+        mock_element_map = {
+            'flattened_sequence': [{'id': 1, 'type': 'text'}],
+            'elements': {'1': {'id': 1, 'type': 'text'}}
+        }
+        mock_build_element_map.return_value = mock_element_map
+        
+        mock_extract_metadata.return_value = {'page_no': 1, 'bbox': {'x': 0, 'y': 0, 'w': 100, 'h': 100}}
+        
+        mock_images_data = {
+            'images': [{'id': 1, 'data': 'base64data'}],
+            'extraction_stats': {'successful': 1, 'failed': 0, 'total_time': 0.5}
+        }
+        mock_process_images.return_value = mock_images_data
+        
+        # Call the function with custom image extraction config
+        pdf_path = "test.pdf"
+        output_dir = "output"
+        custom_image_config = {
+            'images_scale': 3.0,  # Override default value
+            'max_workers': 8  # Override default value
+        }
+        
+        # Call the function
+        result = process_pdf_document(pdf_path, output_dir, None, custom_image_config)
+        
+        # Verify calls
+        mock_convert_pdf.assert_called_once()
+        mock_build_element_map.assert_called_once_with(mock_doc)
+        self.assertEqual(mock_json_dump.call_count, 2)  # element_map.json and element_map_with_metadata.json
+        
+        # Most importantly, verify that process_pdf_for_images was called with our custom config
+        # that includes the overridden values
+        args, kwargs = mock_process_images.call_args
+        self.assertEqual(args[0], pdf_path)
+        self.assertIsInstance(args[2], dict)
+        self.assertEqual(args[2]['images_scale'], 3.0)  # Our custom value
+        self.assertEqual(args[2]['max_workers'], 8)  # Our custom value
+        
+        # Verify function returned the docling document
+        self.assertEqual(result, mock_doc)
+
 if __name__ == "__main__":
     unittest.main() 
