@@ -166,15 +166,26 @@ def generate_breadcrumbs(document_data: Dict[str, Any]) -> Dict[str, Any]:
             breadcrumb_path = build_breadcrumb_path(headers, element_position)
             
             # Update breadcrumb in element and metadata
-            if breadcrumb_path:
-                if "extracted_metadata" in element:
-                    element["extracted_metadata"]["special_field2"] = breadcrumb_path
-                    if "metadata" in element["extracted_metadata"]:
-                        element["extracted_metadata"]["metadata"]["breadcrumb"] = breadcrumb_path
-                    element["extracted_metadata"]["special_field1"] = element["extracted_metadata"]["special_field1"].replace(
-                        f"'breadcrumb': '{element['extracted_metadata'].get('special_field2', '')}'",
-                        f"'breadcrumb': '{breadcrumb_path}'"
-                    )
+            if breadcrumb_path and "extracted_metadata" in element:
+                # Update the breadcrumb in special_field2
+                element["extracted_metadata"]["special_field2"] = breadcrumb_path
+                
+                # Update the breadcrumb in metadata if it exists
+                if "metadata" in element["extracted_metadata"]:
+                    element["extracted_metadata"]["metadata"]["breadcrumb"] = breadcrumb_path
+                
+                # Update the breadcrumb in special_field1 if it exists and contains breadcrumb info
+                if "special_field1" in element["extracted_metadata"]:
+                    # Check if special_field1 contains a breadcrumb entry
+                    special_field1 = element["extracted_metadata"]["special_field1"]
+                    if "'breadcrumb':" in special_field1:
+                        # Extract the current breadcrumb value
+                        current_breadcrumb = element["extracted_metadata"].get("special_field2", "")
+                        # Replace the breadcrumb value with the new one
+                        element["extracted_metadata"]["special_field1"] = special_field1.replace(
+                            f"'breadcrumb': '{current_breadcrumb}'",
+                            f"'breadcrumb': '{breadcrumb_path}'"
+                        )
     
     return document_data
 
@@ -204,15 +215,15 @@ def determine_header_level(text: Dict[str, Any]) -> int:
     if "font_size" in text:
         font_size = float(text["font_size"])
         # Map font sizes to levels (adjust thresholds as needed)
-        if font_size >= 18:
+        if font_size >= 20:  # Main title / document title - keep at level 1
             level = 1
-        elif font_size >= 16:
+        elif font_size >= 18:  # Major section headers
             level = 2
-        elif font_size >= 14:
+        elif font_size >= 16:  # Subsections
             level = 3
-        elif font_size >= 12:
+        elif font_size >= 14:  # Sub-subsections
             level = 4
-        else:
+        else:  # Even smaller headers
             level = 5
     
     # Check if bold
@@ -233,43 +244,72 @@ def get_element_position(element: Dict[str, Any], document_data: Dict[str, Any])
     Returns:
         int: Position index, or -1 if not found
     """
-    # Check if element has a position in body
+    # Get the element's self_ref
+    element_ref = element.get("self_ref")
+    
+    if not element_ref:
+        return -1
+    
+    # Check if element has a position in body.elements
     if "body" in document_data and "elements" in document_data["body"]:
         for i, body_element in enumerate(document_data["body"]["elements"]):
-            if body_element.get("$ref") == element.get("self_ref"):
+            if body_element.get("$ref") == element_ref:
                 return i
     
+    # If not found in body elements, try to determine position from the reference number
+    if element_ref and element_ref.startswith("#/texts/"):
+        try:
+            # Extract the index from the ref, e.g., "#/texts/5" -> 5
+            element_index = int(element_ref.split("/")[-1])
+            return element_index
+        except (ValueError, IndexError):
+            pass
+            
     return -1
 
 def build_breadcrumb_path(headers: List[Dict[str, Any]], element_position: int) -> str:
     """
-    Build a breadcrumb path for an element based on preceding headers.
+    Build a hierarchical breadcrumb path for an element based on preceding headers.
     
     Args:
         headers: List of section headers
         element_position: Position of the element in the document
         
     Returns:
-        str: Breadcrumb path
+        str: Hierarchical breadcrumb path
     """
     if element_position < 0:
         return ""
     
     # Filter headers that precede this element
-    preceding_headers = [h for h in headers if h["id"] < element_position]
+    preceding_headers = [h for h in headers if h["id"] <= element_position]
     
-    # Build breadcrumb path
+    if not preceding_headers:
+        return ""
+    
+    # Create a dictionary to store the most recent header at each level
+    header_levels = {}
+    
+    # Sort headers by position (to process them in document order)
+    preceding_headers.sort(key=lambda h: h["id"])
+    
+    # Process headers in order of appearance in the document
+    for header in preceding_headers:
+        level = header["level"]
+        # Store the header text at its level
+        header_levels[level] = header["text"]
+        
+        # Remove any headers at deeper levels since they now belong to a new section
+        deeper_levels = [l for l in header_levels.keys() if l > level]
+        for deeper_level in deeper_levels:
+            del header_levels[deeper_level]
+    
+    # Build breadcrumb by joining headers in order of increasing level
     breadcrumb_sections = []
-    current_level = 1
+    for level in sorted(header_levels.keys()):
+        breadcrumb_sections.append(header_levels[level])
     
-    while current_level <= 6:  # Maximum of 6 header levels
-        # Find the most recent header at this level
-        for header in reversed(preceding_headers):
-            if header["level"] == current_level:
-                breadcrumb_sections.append(header["text"])
-                break
-        current_level += 1
-    
+    # Join with the separator
     return " > ".join(breadcrumb_sections)
 
 def filter_furniture_from_context(document_data: Dict[str, Any]) -> Dict[str, Any]:

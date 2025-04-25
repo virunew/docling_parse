@@ -56,18 +56,18 @@ def get_hierarchical_breadcrumb(
         logger.warning(f"Element {element_id} not found in sequence")
         return ""
     
-    # Initialize breadcrumb components for different heading levels
-    # We'll store heading text at different levels (h1, h2, h3, etc.)
-    breadcrumb_levels = {}
+    # Initialize a dictionary to store the most recent header at each level
+    header_levels = {}
     
-    # Scan backward to find section headers
-    for i in range(element_index - 1, -1, -1):
-        curr_element = flattened_sequence[i]
-        
+    # Process headers from the beginning of the document up to the element
+    # This ensures we capture the proper hierarchy
+    relevant_sequence = flattened_sequence[:element_index]
+    
+    for seq_element in relevant_sequence:
         # Check if the element is a section header
-        element_type = curr_element.get('metadata', {}).get('type', '').lower()
+        element_type = seq_element.get('metadata', {}).get('type', '').lower()
         # Also check label if available
-        element_label = curr_element.get('label', '')
+        element_label = seq_element.get('label', '')
         
         # Determine if this is a heading and at which level
         heading_level = None
@@ -81,8 +81,8 @@ def get_hierarchical_breadcrumb(
         # If not a direct heading, check for section_header with level attribute
         if heading_level is None and ('section_header' in element_type or 'section_header' in element_label):
             # Try to extract the level from metadata or attributes
-            level_attr = curr_element.get('metadata', {}).get('level', 
-                          curr_element.get('level', None))
+            level_attr = seq_element.get('metadata', {}).get('level', 
+                          seq_element.get('level', None))
             
             # Handle string or int level values
             if isinstance(level_attr, str) and level_attr.isdigit():
@@ -92,10 +92,10 @@ def get_hierarchical_breadcrumb(
             # If no level found, try to infer from the heading style or position
             elif element_type == 'section_header':
                 # Look for additional indicators of the heading level
-                font_size = curr_element.get('metadata', {}).get('font_size', 
-                           curr_element.get('font_size', 0))
-                font_weight = curr_element.get('metadata', {}).get('font_weight', 
-                            curr_element.get('font_weight', ''))
+                font_size = seq_element.get('metadata', {}).get('font_size', 
+                           seq_element.get('font_size', 0))
+                font_weight = seq_element.get('metadata', {}).get('font_weight', 
+                            seq_element.get('font_weight', ''))
                 
                 # Simple heuristic: assign level based on font attributes if available
                 if font_size > 18 or font_weight == 'bold':
@@ -108,23 +108,29 @@ def get_hierarchical_breadcrumb(
                 # Default to level 1 if we can't determine
                 heading_level = 1
         
-        # If we found a heading and haven't recorded one at this level yet
-        if heading_level is not None and heading_level not in breadcrumb_levels:
+        # If we found a heading
+        if heading_level is not None:
             # Get the heading text
-            heading_text = curr_element.get('text', '')
+            heading_text = seq_element.get('text', '')
             if not heading_text:
                 # Try alternative ways to get text
-                heading_text = curr_element.get('content', 
-                               curr_element.get('value', ''))
+                heading_text = seq_element.get('content', 
+                               seq_element.get('value', ''))
             
             if heading_text:
-                # Store the first heading we find at each level (scanning backwards)
-                breadcrumb_levels[heading_level] = heading_text.strip()
+                # Store the header at its level
+                header_levels[heading_level] = heading_text.strip()
+                
+                # Remove any deeper level headers when a new header at a certain level is found
+                # This ensures subsections are properly associated with their parent sections
+                for deeper_level in list(header_levels.keys()):
+                    if deeper_level > heading_level:
+                        del header_levels[deeper_level]
     
     # Build the breadcrumb string, ordered by heading level
     breadcrumb_parts = []
-    for level in sorted(breadcrumb_levels.keys()):
-        breadcrumb_parts.append(breadcrumb_levels[level])
+    for level in sorted(header_levels.keys()):
+        breadcrumb_parts.append(header_levels[level])
     
     # Join with the separator and return
     breadcrumb = " > ".join(breadcrumb_parts)
