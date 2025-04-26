@@ -15,6 +15,8 @@ import tempfile
 from pathlib import Path
 import unittest
 from unittest import mock
+import re
+import subprocess
 
 # Add the parent directory to the path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -36,6 +38,32 @@ logger = logging.getLogger(__name__)
 
 class TestParseMainIntegration(unittest.TestCase):
     """Test suite for the main parsing flow with image extraction."""
+    
+    @classmethod
+    def setUpClass(cls):
+        """Set up test environment once before all tests"""
+        # Create a test output directory
+        cls.test_output_dir = Path("tests/integration_output")
+        cls.test_output_dir.mkdir(exist_ok=True, parents=True)
+        
+        # We'll need a sample PDF for testing
+        # For this test, we'll check if a sample file exists or skip the test
+        cls.sample_pdf_file = None
+        for path in [
+            "sample.pdf",
+            "tests/sample.pdf",
+            "tests/data/sample.pdf"
+        ]:
+            if Path(path).exists():
+                cls.sample_pdf_file = path
+                break
+    
+    @classmethod
+    def tearDownClass(cls):
+        """Clean up after all tests"""
+        # Remove the test output directory
+        if cls.test_output_dir.exists():
+            shutil.rmtree(cls.test_output_dir)
     
     def setUp(self):
         """Set up the test environment."""
@@ -189,6 +217,87 @@ class TestParseMainIntegration(unittest.TestCase):
         # Verify that the mocks were called correctly
         mock_process_pdf_document.assert_called_once()
         mock_save_output.assert_called_once()
+
+    def test_parse_main_output_files(self):
+        """Test that parse_main.py creates output files without base64 data"""
+        if not self.sample_pdf_file:
+            self.skipTest("Sample PDF file not found for testing")
+        
+        # Run parse_main.py with the sample PDF
+        command = [
+            "python", "parse_main.py",
+            "--pdf_path", self.sample_pdf_file,
+            "--output_dir", str(self.test_output_dir)
+        ]
+        
+        # Print the command for debugging
+        print(f"Running: {' '.join(command)}")
+        
+        # Run the command and get the result
+        try:
+            result = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True
+            )
+            print(f"Command stdout: {result.stdout}")
+            print(f"Command stderr: {result.stderr}")
+        except subprocess.CalledProcessError as e:
+            print(f"Command failed with code {e.returncode}")
+            print(f"stdout: {e.stdout}")
+            print(f"stderr: {e.stderr}")
+            self.fail(f"parse_main.py failed with error code {e.returncode}")
+        
+        # Check for the fixed_document.json file
+        fixed_document_file = self.test_output_dir / "fixed_document.json"
+        self.assertTrue(fixed_document_file.exists(), 
+                        f"fixed_document.json not found in {self.test_output_dir}")
+        
+        # Load the fixed document JSON
+        with open(fixed_document_file, 'r', encoding='utf-8') as f:
+            fixed_document = json.load(f)
+        
+        # Check if the JSON contains any base64 data
+        document_json_str = json.dumps(fixed_document)
+        
+        # Pattern to detect base64 data in data URIs
+        base64_pattern = r'data:image\/[^;]+;base64,[A-Za-z0-9+/]+'
+        
+        # Find all matches of base64 data
+        base64_matches = re.findall(base64_pattern, document_json_str)
+        
+        # There should be no base64 data in the fixed document
+        self.assertEqual(len(base64_matches), 0, 
+                        f"Found {len(base64_matches)} base64 data URIs in fixed_document.json")
+        
+        # Check other output files if they exist (e.g., formatted output)
+        for json_file in self.test_output_dir.glob("*.json"):
+            if json_file != fixed_document_file:
+                print(f"Checking {json_file}")
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    try:
+                        json_content = json.load(f)
+                        json_str = json.dumps(json_content)
+                        base64_matches = re.findall(base64_pattern, json_str)
+                        self.assertEqual(len(base64_matches), 0, 
+                                        f"Found {len(base64_matches)} base64 data URIs in {json_file}")
+                    except json.JSONDecodeError:
+                        print(f"Warning: Could not parse {json_file} as JSON")
+        
+        # Check if image files were created
+        doc_id = Path(self.sample_pdf_file).stem
+        images_dir = self.test_output_dir / doc_id / "images"
+        
+        if images_dir.exists():
+            image_files = list(images_dir.glob("*.*"))
+            print(f"Found {len(image_files)} image files in {images_dir}")
+            
+            # If there are pictures in the document, there should be image files
+            if "pictures" in fixed_document and fixed_document["pictures"]:
+                self.assertGreater(len(image_files), 0, 
+                                f"No image files found in {images_dir} despite pictures in document")
 
 
 def main():

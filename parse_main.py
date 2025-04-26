@@ -54,6 +54,7 @@ from output_formatter import OutputFormatter
 
 # Import JSON metadata fixer
 from src.json_metadata_fixer import fix_metadata
+from src.utils import replace_base64_with_file_references
 
 # Try to import docling modules - these should work now with docling_fix
 try:
@@ -372,19 +373,34 @@ def main():
         logger.info("Applying metadata fixes to the document")
         fixed_document_data = fix_metadata(document_data, config.output_dir)
         
-        # Save the fixed document data back to the file
+        # Save the fixed document data back to the file with base64 data replaced with file references
         fixed_output_file = str(Path(config.output_dir) / "fixed_document.json")
+        
+        # Determine the document ID (use PDF filename without extension)
+        doc_id = Path(config.pdf_path).stem
+        
+        # Create output directory for this specific document
+        doc_output_dir = Path(config.output_dir)
+        
+        # Replace base64 image data with file references in one step
+        logger.info(f"Replacing base64 image data with file references")
+        fixed_document_data_for_storage = replace_base64_with_file_references(
+            fixed_document_data, 
+            doc_output_dir,
+            doc_id
+        )
+        
         with open(fixed_output_file, 'w', encoding='utf-8') as f:
-            json.dump(fixed_document_data, f, indent=2, ensure_ascii=False)
+            json.dump(fixed_document_data_for_storage, f, indent=2, ensure_ascii=False)
         
         logger.info(f"Fixed document data saved to: {fixed_output_file}")
         
         # Create a formatter with the specified configuration
         formatter = OutputFormatter(config.get_formatter_config())
         
-        # Save the formatted output using the fixed document data
+        # Save the formatted output using the fixed document data with base64 replaced
         formatted_output_file = formatter.save_formatted_output(
-            fixed_document_data,
+            fixed_document_data_for_storage,
             config.output_dir,
             config.output_format
         )

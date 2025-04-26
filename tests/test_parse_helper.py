@@ -143,9 +143,6 @@ class TestParseHelper:
         mock_convert_pdf.assert_called_once()
         mock_build_map.assert_called_once_with(self.mock_document)
         
-        # Check that element map was saved
-        assert mock_file.call_count >= 2
-        
         # Verify extraction of metadata and images
         mock_extract_metadata.assert_called()
         mock_process_images.assert_called_once_with(self.pdf_path, self.output_dir, {

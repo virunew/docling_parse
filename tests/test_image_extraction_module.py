@@ -124,60 +124,27 @@ class TestEnhancedImageExtractor(unittest.TestCase):
         # Create the extractor
         extractor = EnhancedImageExtractor(self.config)
         
-        # Create a mock element map
-        element_map = {
-            "flattened_sequence": [
-                {"id": "elem1", "type": "text", "content": "Test text"},
-                {"id": "elem2", "type": "image", "content": ""}
-            ],
-            "elements": {
-                "elem1": {"id": "elem1", "type": "text"},
-                "elem2": {"id": "elem2", "type": "image"}
-            }
-        }
-        
-        # Create the element map file
+        # Create file-specific output directory (needed for image saving)
         file_output_dir = self.output_dir / self.pdf_path.stem
         file_output_dir.mkdir(parents=True, exist_ok=True)
         
-        with open(file_output_dir / "element_map.json", "w") as f:
-            json.dump(element_map, f)
+        # Call the method
+        result = extractor.extract_and_save_images(self.pdf_path, self.output_dir)
         
-        # Mock the relationship analyzer
-        with patch('src.image_extraction_module.ImageContentRelationship') as mock_relationship:
-            # Configure the mock relationship analyzer
-            mock_analyzer = mock_relationship.return_value
-            mock_analyzer.analyze_relationships.return_value = {
-                "images": self.mock_image_data["images"],
-                "metadata": self.mock_image_data["metadata"],
-                "relationships": [
-                    {
-                        "image_id": "test_image_1",
-                        "related_text": "Test text",
-                        "relationship_type": "caption"
-                    }
-                ]
-            }
-            
-            # Call the method
-            result = extractor.extract_and_save_images(self.pdf_path, self.output_dir)
-            
-            # Verify the results
-            self.assertIn("images", result)
-            self.assertIn("metadata", result)
-            self.assertIn("relationships", result)
-            
-            # Verify that the image was saved
-            images_dir = file_output_dir / "images"
-            self.assertTrue(images_dir.exists())
-            
-            # Verify that images_data.json was created
-            images_data_path = file_output_dir / "images_data.json"
-            self.assertTrue(images_data_path.exists())
-            
-            # Verify that extraction stats were recorded
-            self.assertIn("extraction_stats", result)
-            self.assertIn("successful", result["extraction_stats"])
+        # Verify the results
+        self.assertIn("images", result)
+        self.assertIn("metadata", result)
+        self.assertNotIn("relationships", result, "Relationships should not be added without element_map")
+        
+        # Verify that the image was saved
+        images_dir = file_output_dir / "images"
+        self.assertTrue(images_dir.exists())
+        saved_image_files = list(images_dir.glob("*.png"))
+        self.assertTrue(len(saved_image_files) > 0, "No image file was saved in the images directory")
+        
+        # Verify that extraction stats were recorded
+        self.assertIn("extraction_stats", result)
+        self.assertIn("successful", result["extraction_stats"])
     
     @patch('src.image_extraction_module.EnhancedImageExtractor')
     def test_process_pdf_for_images(self, mock_extractor_class):

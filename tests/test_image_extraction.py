@@ -1,129 +1,240 @@
 #!/usr/bin/env python3
 """
-Test module for verifying image content extraction
+Tests for image extraction and base64 data removal.
+
+This module tests the functionality of extracting base64-encoded images and replacing
+them with references to externally saved image files.
 """
-import json
-import os
+
 import unittest
+import os
+import json
+import shutil
+import tempfile
 from pathlib import Path
+import base64
 
 # Import the function to test
-from format_standardized_output import create_standardized_output
+from src.json_metadata_fixer import fix_metadata, fix_image_references
+from src.utils import replace_base64_with_file_references
+
 
 class TestImageExtraction(unittest.TestCase):
-    """Test cases for image content extraction"""
-    
-    def setUp(self):
-        """Set up test case"""
-        # Current directory is the test directory
-        self.current_dir = os.path.dirname(os.path.abspath(__file__))
-        # Path to the sample JSON file
-        self.sample_file = os.path.join(self.current_dir, "..", "output_main", "SBW_AI sample page10-11.json")
-        
-        # Load sample document data
-        with open(self.sample_file, 'r', encoding='utf-8') as f:
-            self.document_data = json.load(f)
-    
-    def test_image_data_extraction(self):
-        """Test that the image data is correctly extracted from the input"""
-        # Create standardized output
-        output = create_standardized_output(self.document_data)
-        
-        # Check if there are image chunks
-        image_chunks = [chunk for chunk in output["chunks"] if chunk["format"] == "image"]
-        self.assertGreater(len(image_chunks), 0, "There should be at least one image chunk")
-        
-        # Check that image content is not empty
-        for chunk in image_chunks:
-            self.assertNotEqual(chunk["content"], "", "Image content should not be empty")
-            self.assertTrue(chunk["content"].startswith("data:image"), 
-                           f"Image content should start with 'data:image', got: {chunk['content'][:20]}...")
-    
-    def test_sample_document_with_different_formats(self):
-        """Test the formatting of a document with different image formats"""
-        # Create a sample document with different image formats
-        sample_doc = {
-            "pictures": [
-                {
-                    "id": "1",
-                    "data_uri": "data:image/png;base64,abc123",
-                    "page_number": 1
-                },
-                {
-                    "id": "2",
-                    "image": {
-                        "uri": "data:image/jpeg;base64,def456",
-                        "mimetype": "image/jpeg"
-                    },
-                    "page_number": 2
-                },
-                {
-                    "id": "3",
-                    "image": {
-                        "mimetype": "image/gif",
-                        "data": "ghi789"
-                    },
-                    "page_number": 3
-                }
-            ]
-        }
-        
-        # Create standardized output
-        output = create_standardized_output(sample_doc)
-        
-        # Check if there are exactly 3 image chunks
-        image_chunks = [chunk for chunk in output["chunks"] if chunk["format"] == "image"]
-        self.assertEqual(len(image_chunks), 3, "There should be exactly 3 image chunks")
-        
-        # Verify each chunk has the correct content
-        self.assertEqual(image_chunks[0]["content"], "data:image/png;base64,abc123")
-        self.assertEqual(image_chunks[1]["content"], "data:image/jpeg;base64,def456")
-        self.assertEqual(image_chunks[2]["content"], "data:image/gif;base64,ghi789")
+    """Test cases for image extraction functionality."""
 
-    def test_external_file_paths(self):
-        """Test handling of external file paths for images"""
-        # Create a sample document with external image paths
-        sample_doc = {
+    def setUp(self):
+        """Set up test environment."""
+        # Create temporary directory for test files
+        self.temp_dir = tempfile.mkdtemp()
+        
+        # Create a sample base64 image
+        self.sample_image_data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        
+        # Create sample document data with base64 image
+        self.sample_document = {
             "pictures": [
                 {
-                    "id": "1",
-                    "external_path": "images/image1.png",
-                    "page_number": 1
-                },
+                    "data": f"data:image/png;base64,{self.sample_image_data}",
+                    "width": 100,
+                    "height": 100,
+                }
+            ],
+            "element_map": {
+                "pictures_0": {
+                    "self_ref": "#/pictures/0",
+                    "extracted_metadata": {
+                        "metadata": {}
+                    }
+                }
+            },
+            "source_metadata": {
+                "filename": "test_document.pdf"
+            }
+        }
+    
+    def tearDown(self):
+        """Clean up after tests."""
+        # Remove temporary directory and its contents
+        shutil.rmtree(self.temp_dir)
+    
+    def test_image_extraction_replaces_base64(self):
+        """Test that base64 image data is replaced with external file references."""
+        # Run the fix_metadata function
+        fixed_document = fix_metadata(self.sample_document, self.temp_dir)
+        
+        # Check if the pictures still have base64 data
+        self.assertNotIn("data", fixed_document["pictures"][0], 
+                         "Base64 image data should be removed")
+        
+        # Check if external_file references are added
+        self.assertIn("external_file", fixed_document["pictures"][0],
+                     "External file reference should be added")
+        
+        # Check if the image file is created
+        images_dir = Path(self.temp_dir) / "images"
+        image_files = list(images_dir.glob("*.*"))
+        self.assertTrue(len(image_files) > 0, "Image file should be created")
+        
+        # Check if element map is updated with external_file reference
+        self.assertIn("external_file", fixed_document["element_map"]["pictures_0"],
+                     "Element map should be updated with external_file reference")
+    
+    def test_fix_image_references_function(self):
+        """Test the fix_image_references function directly."""
+        # Create images directory
+        images_dir = Path(self.temp_dir) / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Run the fix_image_references function
+        fixed_document = fix_image_references(self.sample_document, images_dir)
+        
+        # Check if the pictures still have base64 data
+        self.assertNotIn("data", fixed_document["pictures"][0], 
+                         "Base64 image data should be removed")
+        
+        # Check if external_file references are added
+        self.assertIn("external_file", fixed_document["pictures"][0],
+                     "External file reference should be added")
+        
+        # Check if the image file exists
+        image_path = Path(fixed_document["pictures"][0]["external_file"])
+        self.assertTrue((images_dir.parent / image_path).exists(), 
+                        "Image file should exist at the specified path")
+        
+        # Check if the file contains the correct image data
+        with open(images_dir.parent / image_path, "rb") as f:
+            file_data = f.read()
+        
+        original_data = base64.b64decode(self.sample_image_data)
+        self.assertEqual(file_data, original_data, 
+                         "Saved image data should match the original")
+    
+    def test_integration_with_output_formatter(self):
+        """Test integration with the output formatter."""
+        from output_formatter import OutputFormatter
+        
+        # First fix the metadata
+        fixed_document = fix_metadata(self.sample_document, self.temp_dir)
+        
+        # Create formatter with default config
+        formatter = OutputFormatter()
+        
+        # Format as simplified JSON
+        simplified_json = formatter.format_as_simplified_json(fixed_document)
+        
+        # Check if any images in the content reference base64 data
+        for item in simplified_json.get("content", []):
+            if item.get("type") == "image":
+                self.assertNotIn("data:image/", item.get("url", ""), 
+                                "Simplified JSON should not contain base64 image data")
+        
+        # Format as markdown
+        markdown = formatter.format_as_markdown(fixed_document)
+        self.assertNotIn("data:image/base64", markdown, 
+                         "Markdown should not contain base64 image data")
+        
+        # Format as HTML
+        html = formatter.format_as_html(fixed_document)
+        self.assertNotIn("data:image/base64", html, 
+                         "HTML should not contain base64 image data")
+
+    def test_replace_base64_uri_field(self):
+        """Test that base64 data in uri field is correctly replaced with file reference"""
+        # Create test data with base64 image in uri field
+        test_data = {
+            "pictures": [
                 {
-                    "id": "2",
-                    "metadata": {
-                        "file_path": "images/image2.jpg"
-                    },
-                    "page_number": 2
-                },
-                # Mixed case - has both data_uri and external_path (external_path should be prioritized)
-                {
-                    "id": "3",
-                    "external_path": "images/image3.gif",
-                    "data_uri": "data:image/gif;base64,test123",
-                    "page_number": 3
+                    "uri": f"data:image/png;base64,{self.sample_image_data}",
+                    "id": "1"
                 }
             ]
         }
         
-        # Create standardized output
-        output = create_standardized_output(sample_doc)
+        # Run the function under test
+        result = replace_base64_with_file_references(test_data, self.temp_dir, "test_doc")
         
-        # Check if there are exactly 3 image chunks
-        image_chunks = [chunk for chunk in output["chunks"] if chunk["format"] == "image"]
-        self.assertEqual(len(image_chunks), 3, "There should be exactly 3 image chunks")
+        # Check that the images directory was created
+        images_dir = Path(self.temp_dir) / "test_doc" / "images"
+        self.assertTrue(images_dir.exists())
         
-        # Verify each chunk has the correct content
-        self.assertEqual(image_chunks[0]["content"], "images/image1.png")
-        self.assertEqual(image_chunks[0]["metadata"]["is_external"], True)
+        # Check that uri field was replaced with path reference
+        self.assertFalse(result["pictures"][0]["uri"].startswith("data:image"))
+        self.assertTrue(result["pictures"][0]["uri"].startswith("test_doc/images/"))
+        self.assertTrue("external_file" in result["pictures"][0])
         
-        self.assertEqual(image_chunks[1]["content"], "images/image2.jpg")
-        self.assertEqual(image_chunks[1]["metadata"]["is_external"], True)
+        # Check that the file was created and exists
+        file_path = Path(self.temp_dir) / result["pictures"][0]["uri"]
+        self.assertTrue(file_path.exists())
         
-        # Test that external_path takes precedence over data_uri
-        self.assertEqual(image_chunks[2]["content"], "images/image3.gif")
-        self.assertEqual(image_chunks[2]["metadata"]["is_external"], True)
+        # Verify file content
+        with open(file_path, "rb") as f:
+            file_data = f.read()
+        self.assertEqual(file_data, base64.b64decode(self.sample_image_data))
+    
+    def test_replace_base64_data_uri_field(self):
+        """Test that base64 data in data_uri field is correctly replaced with file reference"""
+        # Create test data with base64 image in data_uri field
+        test_data = {
+            "pictures": [
+                {
+                    "data_uri": f"data:image/png;base64,{self.sample_image_data}",
+                    "id": "2"
+                }
+            ]
+        }
+        
+        # Run the function under test
+        result = replace_base64_with_file_references(test_data, self.temp_dir, "test_doc")
+        
+        # Check that the images directory was created
+        images_dir = Path(self.temp_dir) / "test_doc" / "images"
+        self.assertTrue(images_dir.exists())
+        
+        # Check that data_uri field was replaced with path reference
+        self.assertFalse(result["pictures"][0]["data_uri"].startswith("data:image"))
+        self.assertTrue(result["pictures"][0]["data_uri"].startswith("test_doc/images/"))
+        self.assertTrue("external_file" in result["pictures"][0])
+        
+        # Check that the file was created and exists
+        file_path = Path(self.temp_dir) / result["pictures"][0]["data_uri"]
+        self.assertTrue(file_path.exists())
+        
+        # Verify file content
+        with open(file_path, "rb") as f:
+            file_data = f.read()
+        self.assertEqual(file_data, base64.b64decode(self.sample_image_data))
+    
+    def test_replace_base64_nested_structure(self):
+        """Test that base64 data in deeply nested structure is correctly replaced"""
+        # Create test data with deeply nested base64 image
+        test_data = {
+            "element_map": {
+                "element1": {
+                    "data": {
+                        "image": {
+                            "uri": f"data:image/png;base64,{self.sample_image_data}"
+                        }
+                    }
+                }
+            }
+        }
+        
+        # Run the function under test
+        result = replace_base64_with_file_references(test_data, self.temp_dir, "test_doc")
+        
+        # Check that the images directory was created
+        images_dir = Path(self.temp_dir) / "test_doc" / "images"
+        self.assertTrue(images_dir.exists())
+        
+        # Check that uri field was replaced with path reference
+        uri = result["element_map"]["element1"]["data"]["image"]["uri"]
+        self.assertFalse(uri.startswith("data:image"))
+        self.assertTrue(uri.startswith("test_doc/images/"))
+        
+        # Check that the file was created and exists
+        file_path = Path(self.temp_dir) / uri
+        self.assertTrue(file_path.exists())
+
 
 if __name__ == "__main__":
     unittest.main() 

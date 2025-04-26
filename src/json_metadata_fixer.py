@@ -17,6 +17,9 @@ import re
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
+# Import common utilities
+from src.utils import remove_base64_data
+
 # Set up logger
 logger = logging.getLogger(__name__)
 
@@ -45,6 +48,17 @@ def fix_metadata(document_data: Dict[str, Any], output_dir: str) -> Dict[str, An
     
     # Filter furniture elements from context
     document_data = filter_furniture_from_context(document_data)
+    
+    # Save a copy of the fixed document with base64 data removed
+    try:
+        fixed_doc_path = Path(output_dir) / "fixed_metadata.json"
+        # Create a copy with base64 data removed to reduce file size
+        document_data_for_storage = remove_base64_data(document_data)
+        with open(fixed_doc_path, 'w', encoding='utf-8') as f:
+            json.dump(document_data_for_storage, f, indent=2)
+        logger.info(f"Saved fixed metadata document to {fixed_doc_path}")
+    except Exception as e:
+        logger.warning(f"Failed to save fixed metadata JSON: {e}")
     
     return document_data
 

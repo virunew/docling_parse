@@ -18,6 +18,7 @@ import traceback
 import concurrent.futures
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Union, Callable
+import random
 
 # Import the existing image extractor functionality
 from src.pdf_image_extractor import (
@@ -30,6 +31,9 @@ from src.pdf_image_extractor import (
     PermissionError
 )
 
+# Import common utilities
+from src.utils import remove_base64_data
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -39,21 +43,21 @@ def retry_operation(
     args: tuple = (),
     kwargs: dict = None,
     max_retries: int = 3,
-    delay: float = 1.0,
-    backoff_factor: float = 2.0,
-    exceptions_to_retry: tuple = (Exception,)
+    base_delay: float = 0.5,
+    jitter: float = 0.25,
+    max_delay: float = 5.0
 ) -> Any:
     """
-    Retry an operation with exponential backoff.
+    Retry an operation with exponential backoff and jitter.
     
     Args:
         operation: The function to retry
         args: Positional arguments for the function
         kwargs: Keyword arguments for the function
         max_retries: Maximum number of retry attempts
-        delay: Initial delay between retries in seconds
-        backoff_factor: Factor by which the delay increases for each retry
-        exceptions_to_retry: Tuple of exceptions that should trigger a retry
+        base_delay: Base delay in seconds
+        jitter: Random jitter to add to delay (in seconds)
+        max_delay: Maximum delay between retries (in seconds)
         
     Returns:
         The result of the operation, if successful
@@ -69,15 +73,15 @@ def retry_operation(
             if attempt > 0:
                 logger.debug(f"Retry attempt {attempt}/{max_retries}")
             return operation(*args, **kwargs)
-        except exceptions_to_retry as e:
+        except Exception as e:
             last_exception = e
             
             if attempt < max_retries:
-                retry_delay = delay * (backoff_factor ** attempt)
+                retry_delay = min(base_delay * (2 ** attempt) + random.uniform(0, jitter), max_delay)
                 logger.debug(f"Operation failed: {e}. Retrying in {retry_delay:.2f}s")
                 time.sleep(retry_delay)
             else:
-                logger.warning(f"All {max_retries} retry attempts failed")
+                logger.warning(f"All {max_retries} retry attempts failed with: {e}")
     
     # If we get here, all retries failed
     if last_exception:
@@ -164,9 +168,9 @@ class EnhancedImageExtractor:
                     self.image_extractor.extract_images,
                     args=(pdf_path,),
                     max_retries=self.max_retries,
-                    delay=self.retry_delay,
-                    backoff_factor=self.backoff_factor,
-                    exceptions_to_retry=(ExtractionFailureError, PermissionError)
+                    base_delay=self.retry_delay,
+                    jitter=self.retry_delay,
+                    max_delay=self.timeout
                 )
             except Exception as e:
                 logger.warning(f"Image extraction failed after retries: {e}")
@@ -259,6 +263,18 @@ class EnhancedImageExtractor:
                        f"{self.extraction_stats['retried']} retried, "
                        f"in {self.extraction_stats['total_time']:.2f} seconds")
             
+            # Create a copy with base64 data removed to reduce file size
+            result_for_storage = remove_base64_data(images_data)
+            
+            # Save the extraction data as JSON
+            try:
+                json_path = images_data_path
+                with open(json_path, 'w', encoding='utf-8') as f:
+                    json.dump(result_for_storage, f, indent=2)
+                logger.info(f"Saved images extraction data to {json_path}")
+            except Exception as e:
+                logger.warning(f"Failed to save images data JSON: {e}")
+            
             return images_data
             
         except Exception as e:
@@ -328,10 +344,9 @@ class EnhancedImageExtractor:
                 self._save_image,
                 args=(image, index, images_dir, parent_dir),
                 max_retries=self.max_retries,
-                delay=self.retry_delay,
-                backoff_factor=self.backoff_factor,
-                # Retry on specific errors that might be transient
-                exceptions_to_retry=(IOError, PermissionError)
+                base_delay=self.retry_delay,
+                jitter=self.retry_delay,
+                max_delay=self.timeout
             )
         except Exception as e:
             # If we get here, all retries failed

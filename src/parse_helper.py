@@ -23,6 +23,7 @@ import logging
 import json
 import csv
 import uuid
+import copy
 from pathlib import Path
 from typing import Dict, List, Union, Any, Optional, Tuple
 
@@ -43,6 +44,7 @@ from logger_config import logger
 from pdf_image_extractor import ImageContentRelationship, PDFImageExtractor
 from image_extraction_module import process_pdf_for_images, EnhancedImageExtractor
 from metadata_extractor import extract_full_metadata, build_metadata_object
+from utils import remove_base64_data
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -149,10 +151,13 @@ def process_pdf_document(pdf_path, output_dir, config_file=None, image_extractio
         logger.info("Building element map...")
         element_map = build_element_map(docling_document)
         
+        # Create a copy for saving, removing base64 data to reduce file size
+        element_map_for_storage = remove_base64_data(element_map)
+        
         # Save the element map to the file-specific directory
         element_map_path = file_output_dir / "element_map.json"
         with open(element_map_path, 'w', encoding='utf-8') as f:
-            json.dump(element_map, f, indent=2, cls=DoclingJSONEncoder)
+            json.dump(element_map_for_storage, f, indent=2, cls=DoclingJSONEncoder)
         logger.info(f"Element map saved to {element_map_path}")
         
         # Step 3: Extract metadata
@@ -190,10 +195,13 @@ def process_pdf_document(pdf_path, output_dir, config_file=None, image_extractio
                 except Exception as meta_err:
                     logger.warning(f"Error extracting metadata for element {i}: {meta_err}")
             
+            # Create copy of element map with metadata, removing base64 data to reduce file size
+            element_map_with_metadata_for_storage = remove_base64_data(element_map)
+            
             # Save the updated element map with metadata
             metadata_map_path = file_output_dir / "element_map_with_metadata.json"
             with open(metadata_map_path, 'w', encoding='utf-8') as f:
-                json.dump(element_map, f, indent=2, cls=DoclingJSONEncoder)
+                json.dump(element_map_with_metadata_for_storage, f, indent=2, cls=DoclingJSONEncoder)
             logger.info(f"Element map with metadata saved to {metadata_map_path} ({metadata_processed} elements processed)")
         
         # Step 4: Extract images from the PDF document
@@ -274,10 +282,13 @@ def process_pdf_document(pdf_path, output_dir, config_file=None, image_extractio
                         )
                         enhanced_images_data = relationship_analyzer.analyze_relationships(images_data)
                         
+                        # Create a copy for saving to disk, with base64 data removed to reduce file size
+                        images_data_for_storage = remove_base64_data(enhanced_images_data)
+                        
                         # Save the enhanced image data as JSON
                         images_json_path = file_output_dir / "images_data.json"
                         with open(images_json_path, "w", encoding="utf-8") as f:
-                            json.dump(enhanced_images_data, f, indent=2)
+                            json.dump(images_data_for_storage, f, indent=2)
                         logger.info(f"Image extraction data saved to {images_json_path}")
                     else:
                         logger.warning("No flattened sequence found in the element map, skipping relationship analysis")
@@ -338,11 +349,14 @@ def process_extracted_images(images_data, images_dir, output_path):
     
     logger.info(f"Processed {saved_count + failed_count} images: {saved_count} saved, {failed_count} failed")
     
-    # Save the updated images data with file paths
+    # Save the updated images data with file paths, removing base64 data to reduce file size
     try:
+        # Create a copy for storage with base64 data removed
+        images_data_for_storage = remove_base64_data(images_data)
+        
         images_json_path = output_path / "images_data.json"
         with open(images_json_path, "w", encoding="utf-8") as f:
-            json.dump(images_data, f, indent=2)
+            json.dump(images_data_for_storage, f, indent=2)
         logger.info(f"Basic image data saved to {images_json_path}")
     except Exception as e:
         logger.warning(f"Failed to save images data JSON: {e}")

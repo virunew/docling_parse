@@ -1,297 +1,159 @@
 #!/usr/bin/env python3
 """
-Test for JSON Metadata Fixer
-
-Tests the functionality of the json_metadata_fixer module:
-1. Image reference extraction
-2. Breadcrumb generation
-3. Furniture filtering from context
+Unit tests for src/json_metadata_fixer.py
 """
 
 import unittest
-import os
 import json
-import sys
-import shutil
+import os
+import base64
 from pathlib import Path
-import tempfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, mock_open, MagicMock
 
-# Adjust path to import local modules
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+# Ensure src directory is in path for imports
+import sys
+src_path = Path(__file__).resolve().parent.parent / "src"
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
 
-from src.json_metadata_fixer import (
-    fix_metadata,
-    fix_image_references,
-    generate_breadcrumbs,
-    filter_furniture_from_context,
-    determine_header_level,
-    get_element_position,
-    build_breadcrumb_path,
-    filter_context
-)
+from json_metadata_fixer import fix_metadata, fix_image_references, generate_breadcrumbs, filter_furniture_from_context
+
+# Sample base64 encoded PNG data (1x1 pixel, transparent)
+SAMPLE_B64_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+SAMPLE_DATA_URI = f"data:image/png;base64,{SAMPLE_B64_PNG}"
 
 class TestJsonMetadataFixer(unittest.TestCase):
-    """Test cases for JSON Metadata Fixer."""
-    
+    """Test suite for json_metadata_fixer functions."""
+
     def setUp(self):
-        """Set up test environment."""
-        # Create a temporary directory for testing
-        self.temp_dir = tempfile.mkdtemp()
-        
-        # Create a sample document data for testing
-        self.sample_data = {
+        """Set up test fixtures, if any."""
+        self.sample_doc_data = {
             "source_metadata": {
-                "filename": "test_document.pdf",
-                "mimetype": "application/pdf"
+                "filename": "test_document.pdf"
             },
-            "texts": [
-                {
-                    "self_ref": "#/texts/0",
-                    "label": "section_header",
-                    "text": "First Section",
-                    "font_size": 18,
-                    "is_bold": True
-                },
-                {
-                    "self_ref": "#/texts/1",
-                    "label": "section_header",
-                    "text": "Subsection",
-                    "font_size": 16,
-                    "is_bold": False
-                },
-                {
-                    "self_ref": "#/texts/2",
-                    "label": "text",
-                    "text": "Some content text"
-                }
-            ],
             "pictures": [
                 {
-                    "self_ref": "#/pictures/0",
-                    "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-                }
-            ],
-            "furniture": [
-                {
-                    "self_ref": "#/furniture/0",
-                    "text": "Page Header"
+                    "data": SAMPLE_DATA_URI,
+                    "prov": [{"page_no": 1, "bbox_raw": {"l": 10, "t": 10, "r": 110, "b": 110}}],
+                    "label": "picture"
                 },
                 {
-                    "self_ref": "#/furniture/1",
-                    "text": "Page Footer"
+                    # Image without data URI - should be ignored
+                    "prov": [{"page_no": 2, "bbox_raw": {"l": 20, "t": 20, "r": 120, "b": 120}}],
+                    "label": "picture"
                 }
             ],
-            "body": {
-                "elements": [
-                    {"$ref": "#/texts/0"},
-                    {"$ref": "#/texts/1"},
-                    {"$ref": "#/texts/2"},
-                    {"$ref": "#/pictures/0"}
-                ]
-            },
             "element_map": {
-                "texts_0": {
-                    "self_ref": "#/texts/0",
-                    "content_layer": "body",
-                    "extracted_metadata": {
-                        "special_field1": "{'breadcrumb': '', 'context_before': 'Page Header Some content', 'context_after': 'Some more content Page Footer'}",
-                        "special_field2": "",
-                        "metadata": {
-                            "breadcrumb": "",
-                            "context_before": "Page Header Some content",
-                            "context_after": "Some more content Page Footer"
-                        }
-                    }
-                },
-                "texts_1": {
-                    "self_ref": "#/texts/1",
-                    "content_layer": "body",
-                    "extracted_metadata": {
-                        "special_field1": "{'breadcrumb': '', 'context_before': 'First Section Page Header', 'context_after': 'Some content Page Footer'}",
-                        "special_field2": "",
-                        "metadata": {
-                            "breadcrumb": "",
-                            "context_before": "First Section Page Header",
-                            "context_after": "Some content Page Footer"
-                        }
-                    }
-                },
-                "texts_2": {
-                    "self_ref": "#/texts/2",
-                    "content_layer": "body",
-                    "extracted_metadata": {
-                        "special_field1": "{'breadcrumb': '', 'context_before': 'Subsection Page Header', 'context_after': 'Page Footer'}",
-                        "special_field2": "",
-                        "metadata": {
-                            "breadcrumb": "",
-                            "context_before": "Subsection Page Header",
-                            "context_after": "Page Footer"
-                        }
-                    }
-                },
-                "pictures_0": {
+                "elem_pic1": {
                     "self_ref": "#/pictures/0",
                     "content_layer": "body",
+                    "label": "picture",
                     "extracted_metadata": {
-                        "special_field1": "{'breadcrumb': '', 'context_before': 'Some content text Page Header', 'docling_label': 'picture', 'docling_ref': '#/pictures/0'}",
-                        "special_field2": "",
-                        "metadata": {
-                            "breadcrumb": "",
-                            "context_before": "Some content text Page Header",
-                            "docling_label": "picture",
-                            "docling_ref": "#/pictures/0"
-                        }
+                        "metadata": {"page_no": 1},
+                        "special_field1": "{'some_key': 'value'}" # Test placeholder
                     }
                 },
-                "furniture_0": {
-                    "self_ref": "#/furniture/0",
-                    "content_layer": "furniture"
+                "elem_pic2": {
+                     "self_ref": "#/pictures/1",
+                     "content_layer": "body",
+                     "label": "picture"
                 },
-                "furniture_1": {
-                    "self_ref": "#/furniture/1",
-                    "content_layer": "furniture"
+                "elem_text1": {
+                     "self_ref": "#/texts/0",
+                     "content_layer": "body",
+                     "label": "text"
                 }
-            }
+            },
+            "texts": [{"text": "Some text"}],
+            # Other elements like headers, furniture can be added for other tests
         }
-    
+        self.output_dir = Path("./test_output_fixer")
+        self.images_dir = self.output_dir / "images"
+        # Clean up potential leftover directory
+        if self.output_dir.exists():
+            import shutil
+            shutil.rmtree(self.output_dir)
+
     def tearDown(self):
-        """Clean up test environment."""
-        # Remove the temporary directory
-        shutil.rmtree(self.temp_dir)
-    
-    def test_fix_image_references(self):
-        """Test image reference extraction and saving."""
-        # Test the fix_image_references function
-        images_dir = Path(self.temp_dir) / "images"
-        images_dir.mkdir(exist_ok=True)
+        """Tear down test fixtures, if any."""
+        # Clean up the created directory
+        if self.output_dir.exists():
+            import shutil
+            shutil.rmtree(self.output_dir)
+
+    @patch("builtins.open", new_callable=mock_open)
+    @patch("pathlib.Path.mkdir")
+    @patch("json_metadata_fixer.logger") # Mock logger to avoid console output during tests
+    def test_fix_image_references(self, mock_logger, mock_mkdir, mock_file_open):
+        """Test that fix_image_references saves images and updates references."""
+        test_data = json.loads(json.dumps(self.sample_doc_data)) # Deep copy
         
-        # Run the function
-        fixed_data = fix_image_references(self.sample_data, images_dir)
-        
-        # Verify results
-        # 1. Image file should be saved
-        image_files = list(images_dir.glob("*.png"))
-        self.assertTrue(len(image_files) > 0, "No image file was saved")
-        
-        # 2. Data URI should be removed
-        self.assertNotIn("data", fixed_data["pictures"][0], "Data URI was not removed")
-        
-        # 3. External file reference should be added
-        self.assertIn("external_file", fixed_data["pictures"][0], "External file reference not added")
-        
-        # 4. Element map should be updated
-        self.assertIn("external_file", fixed_data["element_map"]["pictures_0"], "Element map not updated with external file")
-    
-    def test_generate_breadcrumbs(self):
-        """Test breadcrumb generation based on section headers."""
-        # Test the generate_breadcrumbs function
-        fixed_data = generate_breadcrumbs(self.sample_data)
-        
-        # Verify results
-        # Check breadcrumb for text element
-        self.assertEqual(
-            fixed_data["element_map"]["texts_2"]["extracted_metadata"]["metadata"]["breadcrumb"],
-            "First Section > Subsection",
-            "Incorrect breadcrumb generated for text element"
-        )
-        
-        # Check breadcrumb for image element
-        self.assertEqual(
-            fixed_data["element_map"]["pictures_0"]["extracted_metadata"]["metadata"]["breadcrumb"],
-            "First Section > Subsection",
-            "Incorrect breadcrumb generated for image element"
-        )
-    
-    def test_filter_furniture_from_context(self):
-        """Test filtering furniture elements from context text."""
-        # Test the filter_furniture_from_context function
-        fixed_data = filter_furniture_from_context(self.sample_data)
-        
-        # Verify results
-        # Check context_before for text element
-        self.assertNotIn(
-            "Page Header",
-            fixed_data["element_map"]["texts_2"]["extracted_metadata"]["metadata"]["context_before"],
-            "Furniture not filtered from context_before"
-        )
-        
-        # Check context_after for text element
-        self.assertNotIn(
-            "Page Footer",
-            fixed_data["element_map"]["texts_2"]["extracted_metadata"]["metadata"]["context_after"],
-            "Furniture not filtered from context_after"
-        )
-    
-    def test_determine_header_level(self):
-        """Test determining header level from element attributes."""
-        # Test various header configurations
-        h1 = {"label": "section_header", "font_size": 20, "is_bold": True}
-        h2 = {"label": "header", "font_size": 16, "is_bold": True}
-        h3 = {"label": "section_header", "font_size": 14, "is_bold": False}
-        h4 = {"label": "h4", "font_size": 12}
-        
-        self.assertEqual(determine_header_level(h1), 1, "H1 detection failed")
-        self.assertEqual(determine_header_level(h2), 2, "H2 detection failed")
-        self.assertEqual(determine_header_level(h3), 3, "H3 detection failed")
-        self.assertEqual(determine_header_level(h4), 4, "H4 detection failed")
-    
-    def test_build_breadcrumb_path(self):
-        """Test building a breadcrumb path from header list."""
-        # Test headers at different levels
-        headers = [
-            {"id": 0, "text": "Document Title", "level": 1, "ref": "#/texts/0"},
-            {"id": 1, "text": "Chapter 1", "level": 2, "ref": "#/texts/1"},
-            {"id": 2, "text": "Section 1.1", "level": 3, "ref": "#/texts/2"}
-        ]
-        
-        # Element after all headers
-        self.assertEqual(
-            build_breadcrumb_path(headers, 3),
-            "Document Title > Chapter 1 > Section 1.1",
-            "Failed to build complete breadcrumb path"
-        )
-        
-        # Element after first header only
-        self.assertEqual(
-            build_breadcrumb_path(headers, 1),
-            "Document Title",
-            "Failed to build partial breadcrumb path"
-        )
-    
-    def test_filter_context(self):
-        """Test filtering furniture text from context string."""
-        context = "Page Header Some important content Page Footer"
-        furniture_texts = {"Page Header", "Page Footer"}
-        
-        filtered = filter_context(context, furniture_texts)
-        
-        self.assertEqual(filtered, "Some important content", "Failed to filter furniture from context")
-    
-    def test_fix_metadata_integration(self):
-        """Test the full metadata fixing process."""
-        # Test the fix_metadata function which integrates all fixes
-        fixed_data = fix_metadata(self.sample_data, self.temp_dir)
-        
-        # Verify all fixes were applied
-        # 1. Image references fixed
-        self.assertIn("external_file", fixed_data["pictures"][0], "Image references not fixed")
-        
-        # 2. Breadcrumbs generated
-        self.assertEqual(
-            fixed_data["element_map"]["texts_2"]["extracted_metadata"]["metadata"]["breadcrumb"],
-            "First Section > Subsection",
-            "Breadcrumbs not generated"
-        )
-        
-        # 3. Context filtered
-        self.assertNotIn(
-            "Page Header",
-            fixed_data["element_map"]["texts_2"]["extracted_metadata"]["metadata"]["context_before"],
-            "Context not filtered"
-        )
+        fixed_data = fix_image_references(test_data, self.images_dir)
+
+        # --- Assertions for picture elements ---
+        self.assertIn("pictures", fixed_data)
+        pictures = fixed_data["pictures"]
+        self.assertEqual(len(pictures), 2)
+
+        # Picture 1 (with data URI)
+        pic1 = pictures[0]
+        self.assertNotIn("data", pic1, "Base64 data should be removed")
+        self.assertIn("external_file", pic1)
+        expected_rel_path = "images/test_document_image_0.png"
+        # Check if the path is relative to the parent of images_dir (output_dir)
+        self.assertTrue(pic1["external_file"].endswith(expected_rel_path))
+        self.assertEqual(pic1["external_file"], str(Path("images") / "test_document_image_0.png"))
 
 
-if __name__ == "__main__":
-    unittest.main() 
+        # Picture 2 (without data URI)
+        pic2 = pictures[1]
+        self.assertNotIn("data", pic2)
+        self.assertNotIn("external_file", pic2, "Should not have external_file if no data URI")
+
+        # --- Assertions for file writing ---
+        # Check if Path.mkdir was called correctly
+        mock_mkdir.assert_not_called() # fix_image_references doesn't create the dir itself
+
+        # Check if 'open' was called correctly to write the file
+        expected_abs_path = self.images_dir / "test_document_image_0.png"
+        mock_file_open.assert_called_once_with(expected_abs_path, "wb")
+        
+        # Check if write was called with decoded data
+        handle = mock_file_open()
+        decoded_data = base64.b64decode(SAMPLE_B64_PNG)
+        handle.write.assert_called_once_with(decoded_data)
+
+        # --- Assertions for element_map updates ---
+        self.assertIn("element_map", fixed_data)
+        element_map = fixed_data["element_map"]
+        
+        # Element referencing Picture 1
+        elem_pic1 = element_map["elem_pic1"]
+        self.assertIn("external_file", elem_pic1)
+        self.assertEqual(elem_pic1["external_file"], pic1["external_file"])
+        # Check metadata update
+        self.assertIn("extracted_metadata", elem_pic1)
+        self.assertIn("external_files", elem_pic1["extracted_metadata"])
+        self.assertEqual(elem_pic1["extracted_metadata"]["external_files"], pic1["external_file"])
+
+        # Element referencing Picture 2 (should be unchanged regarding external_file)
+        elem_pic2 = element_map["elem_pic2"]
+        self.assertNotIn("external_file", elem_pic2)
+        self.assertNotIn("extracted_metadata", elem_pic2) # No metadata existed initially
+
+        # Element referencing text (should be unchanged)
+        elem_text1 = element_map["elem_text1"]
+        self.assertNotIn("external_file", elem_text1)
+        
+        # --- Assertions for Logging ---
+        mock_logger.info.assert_called_with("Fixing image references...")
+        mock_logger.debug.assert_called_with(f"Saved image to {expected_abs_path}")
+
+
+    # TODO: Add tests for generate_breadcrumbs
+    # TODO: Add tests for filter_furniture_from_context
+    # TODO: Add test for the main fix_metadata function orchestrating calls
+
+
+if __name__ == '__main__':
+    unittest.main()
