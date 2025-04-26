@@ -1,0 +1,5 @@
+This is a test PDF document for docling_parse.
+
+It contains some simple text for testing image deduplication.
+
+The parser should extract this text and avoid duplicate image files. 

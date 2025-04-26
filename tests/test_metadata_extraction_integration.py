@@ -19,7 +19,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'src'))
 
 # Import the functionality to test
-from parse_main_new import main
+from parse_main import main
 from parse_helper import process_pdf_document, save_output 
 from metadata_extractor import (
     convert_bbox,

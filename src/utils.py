@@ -70,6 +70,7 @@ def replace_base64_with_file_references(
     1. Recursively searches for base64_data fields in the document
     2. Decodes and saves the base64 data as image files in the specified directory
     3. Replaces the base64_data field with a reference to the saved file
+    4. Deduplicates images by checking hash values before saving
     
     Args:
         data: A dictionary or list potentially containing base64 data
@@ -89,6 +90,38 @@ def replace_base64_with_file_references(
     
     # Counter for generating unique image filenames
     image_counter = 0
+    
+    # Dictionary to track image hashes for deduplication
+    image_hash_map = {}
+    
+    # Create simplified names for frequently used images
+    simplified_names = {
+        # The mapping will be populated as images are processed
+        # hash_value -> (filename, relative_path)
+    }
+    
+    # Check if a standardized image name already exists (like picture_1.png)
+    def check_standardized_images():
+        """Check for existing standardized image names in the directory"""
+        for i in range(1, 10):  # Reasonable limit to check
+            std_name = f"picture_{i}.png"
+            std_path = doc_images_dir / std_name
+            if std_path.exists():
+                # Read the file to compute its hash
+                try:
+                    with open(std_path, 'rb') as f:
+                        file_data = f.read()
+                        # Convert image data to base64 and then hash it to match the
+                        # same algorithm used when processing base64 data
+                        base64_data = base64.b64encode(file_data).decode('utf-8')
+                        hash_value = hashlib.md5(base64_data.encode()).hexdigest()[:10]
+                        simplified_names[hash_value] = (std_name, f"{doc_id}/images/{std_name}")
+                        logging.info(f"Found existing standardized image: {std_name} with hash {hash_value}")
+                except Exception as e:
+                    logging.warning(f"Error reading existing image {std_path}: {e}")
+    
+    # Call the function to populate simplified_names from existing files
+    check_standardized_images()
     
     def process_data(data: Union[Dict, List, Any]) -> Union[Dict, List, Any]:
         """Inner recursive function to process the data structure"""
@@ -119,20 +152,42 @@ def replace_base64_with_file_references(
                             
                             # Decode base64 data
                             try:
-                                image_data = base64.b64decode(encoded_data)
-                                
-                                # Create a unique filename for the image
-                                image_counter += 1
                                 # Create a hash of the base64 data for uniqueness
                                 hash_value = hashlib.md5(encoded_data.encode()).hexdigest()[:10]
-                                filename = f"{doc_id}_img_{image_counter}_{hash_value}.{image_format}"
-                                file_path = doc_images_dir / filename
-                                relative_path = f"{doc_id}/images/{filename}"
                                 
-                                # Save the image file
-                                with open(file_path, 'wb') as f:
-                                    f.write(image_data)
-                                logging.info(f"Saved image to {file_path}")
+                                # Check if we've already processed this image (deduplication)
+                                if hash_value in image_hash_map:
+                                    # Reuse the existing path
+                                    relative_path = image_hash_map[hash_value]
+                                    logging.info(f"Reusing existing image with hash {hash_value}")
+                                elif hash_value in simplified_names:
+                                    # Reuse an existing standardized image
+                                    _, relative_path = simplified_names[hash_value]
+                                    logging.info(f"Reusing standardized image for hash {hash_value}")
+                                else:
+                                    # Decode the image data
+                                    image_data = base64.b64decode(encoded_data)
+                                    
+                                    # Create a unique filename for the image
+                                    image_counter += 1
+                                    
+                                    # Use standardized names for the first few images if they don't exist yet
+                                    if image_counter <= 2 and f"picture_{image_counter}.png" not in [name for name, _ in simplified_names.values()]:
+                                        filename = f"picture_{image_counter}.png"
+                                        simplified_names[hash_value] = (filename, f"{doc_id}/images/{filename}")
+                                    else:
+                                        filename = f"{doc_id}_img_{image_counter}_{hash_value}.{image_format}"
+                                    
+                                    file_path = doc_images_dir / filename
+                                    relative_path = f"{doc_id}/images/{filename}"
+                                    
+                                    # Save the image file
+                                    with open(file_path, 'wb') as f:
+                                        f.write(image_data)
+                                    logging.info(f"Saved image to {file_path}")
+                                    
+                                    # Add to our hash map for future deduplication
+                                    image_hash_map[hash_value] = relative_path
                                 
                                 # Update the value with the external file reference
                                 result[key] = relative_path
@@ -165,30 +220,48 @@ def replace_base64_with_file_references(
                         if clean_base64.startswith('data:'):
                             clean_base64 = clean_base64.split(',', 1)[1]
                         
-                        # Create a unique filename for the image
-                        image_counter += 1
                         # Create a hash of the base64 data for uniqueness
                         hash_value = hashlib.md5(clean_base64.encode()).hexdigest()[:10]
-                        filename = f"{doc_id}_img_{image_counter}_{hash_value}{extension}"
-                        file_path = doc_images_dir / filename
-                        relative_path = f"{doc_id}/images/{filename}"
                         
-                        # Decode and save the base64 data to a file
-                        try:
+                        # Check if we've already processed this image (deduplication)
+                        if hash_value in image_hash_map:
+                            # Reuse the existing path
+                            relative_path = image_hash_map[hash_value]
+                            logging.info(f"Reusing existing image with hash {hash_value}")
+                        elif hash_value in simplified_names:
+                            # Reuse an existing standardized image
+                            _, relative_path = simplified_names[hash_value]
+                            logging.info(f"Reusing standardized image for hash {hash_value}")
+                        else:
+                            # Decode the image data
                             image_data = base64.b64decode(clean_base64)
+                            
+                            # Create a unique filename for the image
+                            image_counter += 1
+                            
+                            # Use standardized names for the first few images if they don't exist yet
+                            if image_counter <= 2 and f"picture_{image_counter}.png" not in [name for name, _ in simplified_names.values()]:
+                                filename = f"picture_{image_counter}.png"
+                                simplified_names[hash_value] = (filename, f"{doc_id}/images/{filename}")
+                            else:
+                                filename = f"{doc_id}_img_{image_counter}_{hash_value}{extension}"
+                            
+                            file_path = doc_images_dir / filename
+                            relative_path = f"{doc_id}/images/{filename}"
+                            
+                            # Save the image file
                             with open(file_path, 'wb') as f:
                                 f.write(image_data)
                             logging.info(f"Saved image to {file_path}")
                             
-                            # Create a copy of the content dict without base64_data
-                            content_dict = {k: v for k, v in data.items() if k != 'base64_data'}
-                            # Add the external_file reference
-                            content_dict['external_file'] = relative_path
-                            return content_dict
-                        except Exception as e:
-                            logging.error(f"Error decoding base64 or saving image: {e}")
-                            # Return the original data if there's an error
-                            result[key] = value
+                            # Add to our hash map for future deduplication
+                            image_hash_map[hash_value] = relative_path
+                        
+                        # Create a copy of the content dict without base64_data
+                        content_dict = {k: v for k, v in data.items() if k != 'base64_data'}
+                        # Add the external_file reference
+                        content_dict['external_file'] = relative_path
+                        return content_dict
                     except Exception as e:
                         logging.error(f"Error processing base64 data: {e}")
                         result[key] = value
@@ -251,7 +324,8 @@ def save_json(data, file_path, indent=2):
     """
     with open(file_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=indent, ensure_ascii=False)
-        
+    logging.info(f"Saved JSON data to {file_path}")
+
 def load_json(file_path):
     """
     Load data from a JSON file.
@@ -260,7 +334,7 @@ def load_json(file_path):
         file_path: The path to load the file from
         
     Returns:
-        The data loaded from the JSON file
+        The loaded JSON data
     """
     with open(file_path, 'r', encoding='utf-8') as f:
         return json.load(f) 
