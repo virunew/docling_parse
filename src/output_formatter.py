@@ -100,69 +100,86 @@ class OutputFormatter:
     
     def format_as_simplified_json(self, document_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Format the document data as simplified JSON.
-        
-        This format is optimized for readability and easier consumption by client applications.
+        Format document data as simplified JSON.
         
         Args:
-            document_data: Original document data dictionary
+            document_data: Document data dictionary
             
         Returns:
-            Dictionary with simplified document structure
+            Simplified JSON object
         """
-        logger.info("Formatting document as simplified JSON")
-        
         try:
-            # Check if document_data is a string (error message from previous step)
+            logger.info("Formatting document as simplified JSON")
+            
+            # Handle string input (typically an error message)
             if isinstance(document_data, str):
-                logger.error(f"Invalid document data (received string instead of dict): {document_data}")
-                return {
-                    "metadata": {"name": "error", "error": document_data},
-                    "content": []
-                }
+                logger.error(f"Invalid document_data in format_as_simplified_json (received string): {document_data}")
+                return {"error": document_data}
                 
             # Initialize output structure
-            output = {
+            output_json = {
+                "type": "document",
                 "metadata": self._extract_document_metadata(document_data),
                 "content": []
             }
-            
+
             # Process document content
-            if "flattened_sequence" in document_data:
-                output["content"] = self._process_content_sequence(document_data["flattened_sequence"])
-            elif "pages" in document_data:
-                # Process pages if available
-                pages = document_data.get("pages", [])
-                content = []
+            content_items = []
+            
+            # Process pages if available
+            if "pages" in document_data:
+                # Check if pages is a list
+                if not isinstance(document_data["pages"], list):
+                    logger.error(f"Invalid pages data in format_as_simplified_json (expected list, got {type(document_data['pages']).__name__})")
+                    document_data["pages"] = []
+                    
+                pages = document_data["pages"]
                 
-                for page in pages:
-                    # Add page break marker if configured
-                    if self.config["include_page_breaks"] and content:
-                        content.append({
-                            "type": "page_break",
-                            "page_number": page.get("page_number")
-                        })
+                for page_idx, page in enumerate(pages):
+                    # Skip if not a dictionary
+                    if not isinstance(page, dict):
+                        logger.error(f"Invalid page data in format_as_simplified_json (expected dict, got {type(page).__name__})")
+                        continue
                     
                     # Process page content
                     page_content = self._process_page_content(page)
-                    content.extend(page_content)
-                
-                output["content"] = content
+                    
+                    # Add page break if configured
+                    if self.config["include_page_breaks"] and page_idx < len(pages) - 1:
+                        page_content.append({
+                            "type": "page_break",
+                            "page_number": page_idx + 1
+                        })
+                    
+                    content_items.extend(page_content)
             
-            # Add images data if available and configured
-            if self.config["include_images"] and "images_data" in document_data:
-                output["images"] = self._process_images_data(document_data["images_data"])
+            # Process flattened_sequence if available
+            if "flattened_sequence" in document_data:
+                if isinstance(document_data["flattened_sequence"], list):
+                    flattened_content = self._process_content_sequence(document_data["flattened_sequence"])
+                    content_items.extend(flattened_content)
+                else:
+                    logger.error(f"Invalid flattened_sequence data (expected list, got {type(document_data['flattened_sequence']).__name__})")
             
-            logger.info("Successfully formatted document as simplified JSON")
-            return output
+            # Process images data if available
+            if "images_data" in document_data:
+                image_items = self._process_images_data(document_data["images_data"])
+                content_items.extend(image_items)
             
+            # Sort content by page number and position
+            output_json["content"] = sorted(
+                content_items,
+                key=lambda x: (
+                    x.get("metadata", {}).get("page_number", 999),
+                    x.get("metadata", {}).get("position", 999)
+                )
+            )
+            
+            return output_json
         except Exception as e:
-            logger.error(f"Error formatting document as simplified JSON: {e}")
-            # Return minimal structure in case of error
-            return {
-                "metadata": {"name": document_data.get("name", "") if isinstance(document_data, dict) else "", "error": str(e)},
-                "content": []
-            }
+            error_msg = f"Error formatting document as simplified JSON: {str(e)}"
+            logger.error(error_msg)
+            return {"error": error_msg}
     
     def format_as_markdown(self, document_data: Dict[str, Any]) -> str:
         """
@@ -661,44 +678,50 @@ class OutputFormatter:
         
         # Format the document based on the requested format
         if format_type.lower() == "json":
+            # Format the document data first, then save
             formatted_data = self.format_as_simplified_json(document_data)
-            output_file = output_path / f"{doc_name}_simplified.json"
+            output_file = output_path / f"document_simplified.json"
             
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(formatted_data, f, ensure_ascii=False, indent=2)
         
         elif format_type.lower() == "sql":
+            # Format the document data first, then save
             formatted_data = self.format_as_sql_json(document_data)
-            output_file = output_path / f"{doc_name}_sql.json"
+            output_file = output_path / f"document_sql.json"
             
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(formatted_data, f, ensure_ascii=False, indent=2)
                 
         elif format_type.lower() == "md":
+            # Format the document data first, then save
             formatted_data = self.format_as_markdown(document_data)
-            output_file = output_path / f"{doc_name}.md"
+            output_file = output_path / f"document.md"
             
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(formatted_data)
                 
         elif format_type.lower() == "html":
+            # Format the document data first, then save
             formatted_data = self.format_as_html(document_data)
-            output_file = output_path / f"{doc_name}.html"
+            output_file = output_path / f"document.html"
             
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(formatted_data)
                 
         elif format_type.lower() == "csv":
+            # Format the document data first, then save
             formatted_data = self.format_as_csv(document_data)
-            output_file = output_path / f"{doc_name}.csv"
+            output_file = output_path / f"document.csv"
             
             with open(output_file, "w", encoding="utf-8", newline="") as f:
                 f.write(formatted_data)
                 
         else:
             logger.warning(f"Unsupported format type: {format_type}, defaulting to JSON")
+            # Format the document data first, then save
             formatted_data = self.format_as_simplified_json(document_data)
-            output_file = output_path / f"{doc_name}_simplified.json"
+            output_file = output_path / f"document_simplified.json"
             
             with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(formatted_data, f, ensure_ascii=False, indent=2)
@@ -960,45 +983,63 @@ class OutputFormatter:
             }
         }
     
-    def _process_images_data(self, images_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _process_images_data(self, images_data: Any) -> List[Dict[str, Any]]:
         """
-        Process images data into a simplified list.
+        Process images data from document and convert to content items.
         
         Args:
-            images_data: Images data dictionary
+            images_data: Images data from document
             
         Returns:
-            List of simplified image items
+            List of image content items
         """
-        images = []
-        
-        # Extract images list if available
-        image_list = images_data.get("images", [])
-        
-        for img in image_list:
-            image_path = img.get("path", "")
+        try:
+            logger.debug("Processing images data")
             
-            # If a base URL is configured, create a full URL
-            image_url = image_path
-            if self.config["image_base_url"] and image_path:
-                image_url = self.config["image_base_url"] + "/" + image_path.split("/")[-1]
+            # Handle non-dictionary input
+            if not isinstance(images_data, dict):
+                logger.error(f"Invalid images_data in _process_images_data (expected dict, got {type(images_data).__name__}): {images_data}")
+                return []
+                
+            result = []
             
-            # Create simplified image entry
-            image_item = {
-                "type": "image",
-                "url": image_url,
-                "caption": img.get("caption", ""),
-                "alt_text": img.get("alt_text", ""),
-                "metadata": {
-                    "page_number": img.get("page_number"),
-                    "width": img.get("width"),
-                    "height": img.get("height")
+            # Process each image
+            for img_id, img_data in images_data.items():
+                # Skip if not a dictionary
+                if not isinstance(img_data, dict):
+                    logger.error(f"Invalid image data for {img_id} (expected dict, got {type(img_data).__name__})")
+                    continue
+                
+                # Extract image metadata
+                metadata = {}
+                if "page_number" in img_data:
+                    metadata["page_number"] = img_data["page_number"]
+                if "position" in img_data:
+                    metadata["position"] = img_data["position"]
+                if "bbox" in img_data:
+                    metadata["bbox"] = img_data["bbox"]
+                    
+                # Create image content item
+                image_item = {
+                    "type": "image",
+                    "id": img_id,
+                    "metadata": metadata
                 }
-            }
-            
-            images.append(image_item)
-        
-        return images
+                
+                # Add caption if available and configured
+                if self.config["include_captions"] and "caption" in img_data:
+                    image_item["caption"] = img_data["caption"]
+                
+                # Add image path if available
+                if "path" in img_data:
+                    image_item["path"] = img_data["path"]
+                    
+                result.append(image_item)
+                
+            return result
+        except Exception as e:
+            logger.error(f"Error processing images data: {str(e)}")
+            return []
     
     def _table_to_markdown(self, table: Dict[str, Any]) -> List[str]:
         """
@@ -1165,7 +1206,15 @@ class OutputFormatter:
             The formatted document data.
         """
         format_type = self.config.get("format", "simplified_json").lower()
-        self.logger.info(f"Formatting document as {format_type}")
+        logger.info(f"Formatting document as {format_type}")
+
+        # Check if document_data is a string (error message from previous step)
+        if isinstance(document_data, str):
+            logger.error(f"Invalid document data in format_document (received string): {document_data}")
+            # Return basic error structure
+            return {
+                "error": f"Invalid document data: {document_data}"
+            }
 
         result = {}
 
@@ -1206,9 +1255,115 @@ class OutputFormatter:
                 result["sql"] = self.format_as_sql(document_data, save_to_file=save_to_file)
 
         except Exception as e:
-            self.logger.error(f"Error formatting document: {e}")
+            logger.error(f"Error formatting document: {e}")
+            result["error"] = str(e)
 
         return result
+
+    def _process_document_content(self, doc_content: Any) -> List[Dict[str, Any]]:
+        """
+        Process document content into a list of content items.
+        
+        Args:
+            doc_content: Document content to process
+            
+        Returns:
+            List of processed content items
+        """
+        try:
+            logger.debug("Processing document content")
+            result = []
+            
+            # Handle non-dictionary input
+            if not isinstance(doc_content, dict):
+                logger.error(f"Invalid doc_content in _process_document_content (expected dict, got {type(doc_content).__name__}): {doc_content}")
+                return []
+            
+            # Process pages if available
+            pages = doc_content.get("pages", [])
+            if not isinstance(pages, list):
+                logger.error(f"Invalid pages data (expected list, got {type(pages).__name__})")
+                return []
+                
+            for page in pages:
+                # Skip if not a dictionary
+                if not isinstance(page, dict):
+                    logger.error(f"Invalid page data (expected dict, got {type(page).__name__})")
+                    continue
+                    
+                page_number = page.get("page_number", 0)
+                blocks = page.get("blocks", [])
+                
+                # Skip if blocks is not a list
+                if not isinstance(blocks, list):
+                    logger.error(f"Invalid blocks data for page {page_number} (expected list, got {type(blocks).__name__})")
+                    continue
+                
+                for block in blocks:
+                    # Skip if not a dictionary
+                    if not isinstance(block, dict):
+                        logger.error(f"Invalid block data in page {page_number} (expected dict, got {type(block).__name__})")
+                        continue
+                    
+                    # Create content item
+                    content_item = {
+                        "type": "text",
+                        "text": block.get("text", ""),
+                        "metadata": {
+                            "page_number": page_number,
+                            "position": block.get("position", 0)
+                        }
+                    }
+                    
+                    # Add block type if available
+                    if "block_type" in block:
+                        content_item["metadata"]["block_type"] = block["block_type"]
+                    
+                    # Add bbox if available
+                    if "bbox" in block:
+                        content_item["metadata"]["bbox"] = block["bbox"]
+                    
+                    result.append(content_item)
+            
+            # Process flattened if available and no pages processed
+            if len(result) == 0 and "flattened" in doc_content:
+                flattened = doc_content.get("flattened", [])
+                
+                # Skip if flattened is not a list
+                if not isinstance(flattened, list):
+                    logger.error(f"Invalid flattened data (expected list, got {type(flattened).__name__})")
+                    return []
+                
+                for item in flattened:
+                    # Skip if not a dictionary
+                    if not isinstance(item, dict):
+                        logger.error(f"Invalid flattened item (expected dict, got {type(item).__name__})")
+                        continue
+                    
+                    # Create content item
+                    content_item = {
+                        "type": "text",
+                        "text": item.get("text", ""),
+                        "metadata": {
+                            "page_number": item.get("page_number", 0),
+                            "position": item.get("position", 0)
+                        }
+                    }
+                    
+                    # Add block type if available
+                    if "block_type" in item:
+                        content_item["metadata"]["block_type"] = item["block_type"]
+                    
+                    # Add bbox if available
+                    if "bbox" in item:
+                        content_item["metadata"]["bbox"] = item["bbox"]
+                    
+                    result.append(content_item)
+            
+            return result
+        except Exception as e:
+            logger.error(f"Error processing document content: {str(e)}")
+            return []
 
 
 # Example usage (when running as standalone module)

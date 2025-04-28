@@ -49,6 +49,34 @@ from utils import remove_base64_data
 # Setup logging
 logger = logging.getLogger(__name__)
 
+def save_output_to_dict(docling_document):
+    """
+    Convert a DoclingDocument to a dictionary without saving to a file.
+    
+    Args:
+        docling_document: The DoclingDocument to convert
+        
+    Returns:
+        dict: Dictionary representation of the document
+    """
+    try:
+        logger.info("Converting DoclingDocument to dictionary")
+        
+        # Serialize the document to a dictionary
+        doc_dict = serialize_docling_document(docling_document)
+        
+        # Make the document JSON serializable
+        serializable_doc = convert_to_serializable(doc_dict)
+        
+        return serializable_doc
+        
+    except TypeError as e:
+        logger.error(f"Type error in save_output_to_dict (document serialization failed): {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in save_output_to_dict: {e}")
+        raise
+
 def save_output(docling_document, output_dir):
     """
     Save a DoclingDocument as a JSON file.
@@ -70,8 +98,8 @@ def save_output(docling_document, output_dir):
         # Get the document name
         doc_name = getattr(docling_document, 'name', 'docling_document')
         
-        # Serialize the document to a dictionary
-        doc_dict = serialize_docling_document(docling_document)
+        # Serialize the document to a dictionary using the common function
+        serializable_doc = save_output_to_dict(docling_document)
         
         # Check if there's an images_data.json file to incorporate
         doc_dir = output_path / doc_name
@@ -79,10 +107,7 @@ def save_output(docling_document, output_dir):
         
         if images_data_path.exists():
             logger.info(f"Found images data at {images_data_path}, incorporating into output")
-            doc_dict = merge_with_image_data(doc_dict, images_data_path)
-        
-        # Make the document JSON serializable
-        serializable_doc = convert_to_serializable(doc_dict)
+            serializable_doc = merge_with_image_data(serializable_doc, images_data_path)
         
         # Write the JSON output using the custom encoder
         output_file = output_path / f"{doc_name}.json"

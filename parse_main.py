@@ -56,6 +56,9 @@ from output_formatter import OutputFormatter
 from src.json_metadata_fixer import fix_metadata
 from src.utils import replace_base64_with_file_references
 
+# Import streamlined processor
+from src.streamlined_processor import streamlined_process
+
 # Try to import docling modules - these should work now with docling_fix
 try:
     from docling.document_converter import DocumentConverter
@@ -362,52 +365,16 @@ def main():
         # Process the PDF document
         docling_document = process_pdf_document(config.pdf_path, config.output_dir, config.config_file)
         
-        # Save the output as JSON (standard format)
-        output_file = save_output(docling_document, config.output_dir)
-        
-        # Load the JSON output for formatting
-        with open(output_file, 'r', encoding='utf-8') as f:
-            document_data = json.load(f)
-        
-        # Apply metadata fixes to the JSON data
-        logger.info("Applying metadata fixes to the document")
-        fixed_document_data = fix_metadata(document_data, config.output_dir)
-        
-        # Save the fixed document data back to the file with base64 data replaced with file references
-        fixed_output_file = str(Path(config.output_dir) / "fixed_document.json")
-        
-        # Determine the document ID (use PDF filename without extension)
-        doc_id = Path(config.pdf_path).stem
-        
-        # Create output directory for this specific document
-        doc_output_dir = Path(config.output_dir)
-        
-        # Replace base64 image data with file references in one step
-        logger.info(f"Replacing base64 image data with file references")
-        fixed_document_data_for_storage = replace_base64_with_file_references(
-            fixed_document_data, 
-            doc_output_dir,
-            doc_id
-        )
-        
-        with open(fixed_output_file, 'w', encoding='utf-8') as f:
-            json.dump(fixed_document_data_for_storage, f, indent=2, ensure_ascii=False)
-        
-        logger.info(f"Fixed document data saved to: {fixed_output_file}")
-        
-        # Create a formatter with the specified configuration
-        formatter = OutputFormatter(config.get_formatter_config())
-        
-        # Save the formatted output using the fixed document data with base64 replaced
-        formatted_output_file = formatter.save_formatted_output(
-            fixed_document_data_for_storage,
+        # Use streamlined processor to go directly from document to final output
+        formatted_output_file = streamlined_process(
+            docling_document,
             config.output_dir,
+            config.pdf_path,
+            config.get_formatter_config(),
             config.output_format
         )
         
         logger.info(f"Document processing completed successfully")
-        logger.info(f"Standard output saved to: {output_file}")
-        logger.info(f"Fixed output saved to: {fixed_output_file}")
         logger.info(f"Formatted output saved to: {formatted_output_file}")
         
         return 0

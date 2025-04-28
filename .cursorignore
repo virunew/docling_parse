@@ -1,0 +1,6 @@
+*pycache*/**
+*.venv/**
+*.vscode/**
+*.gitignore
+*.git/**
+*.cursorignore

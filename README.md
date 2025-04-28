@@ -132,3 +132,81 @@ This will run integration tests that verify:
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+# Docling BreadcrumbChunker
+
+An enhanced document chunker for the Docling library that generates complete hierarchical breadcrumb paths for document chunks.
+
+## Overview
+
+The `BreadcrumbChunker` extends the base chunker functionality in Docling to create complete breadcrumb paths that preserve the full hierarchical structure of the document. This is particularly useful for documents with complex section numbering and nested headings.
+
+## Features
+
+- **Full Hierarchical Breadcrumbs**: Generates breadcrumbs that include all levels of the document hierarchy for each chunk
+- **Section Number Awareness**: Recognizes document section numbering patterns (e.g., "3.2.1.") to correctly nest headings
+- **Special Handling for Unnumbered Headings**: Properly handles unnumbered headings (e.g., "Shall", "Should", "May") by nesting them under their parent sections
+
+## Example Output
+
+A document chunk containing the text "The word 'shall' be used to state a binding requirement..." might have a breadcrumb path like:
+
+```json
+{
+  "headings": "3.2.2. Definitions > 3.2.2.1. Obligation of Requirement Wording > Shall",
+  ...
+}
+```
+
+## Implementation Details
+
+The chunker works by:
+
+1. Tracking the full breadcrumb path at each heading level
+2. Using regex pattern matching to extract section numbers from headings
+3. Determining the appropriate parent level for each heading
+4. Creating synthetic levels for unnumbered headings to maintain the hierarchy
+
+## Usage
+
+```python
+from breadcrumb_chunker import BreadcrumbChunker
+from docling.document_converter import DocumentConverter
+from docling.document_converter import PdfFormatOption
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import PdfPipelineOptions
+
+# Create and configure the document converter
+pipeline_options = PdfPipelineOptions()
+pipeline_options.images_scale = 2.0
+pipeline_options.generate_page_images = True
+pipeline_options.generate_picture_images = True
+pipeline_options.do_ocr = False
+
+doc_converter = DocumentConverter(
+    format_options={
+        InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+    }
+)
+
+# Convert a document
+conv_res = doc_converter.convert('/path/to/document.pdf')
+
+# Create and use the chunker
+chunker = BreadcrumbChunker(merge_list_items=True)
+chunks = chunker.chunk(conv_res.document)
+
+# Process the chunks
+for chunk in chunks:
+    print(f"Text: {chunk.text}")
+    print(f"Breadcrumb: {chunk.meta.headings}")
+    print("---")
+```
+
+## Testing
+
+Run the tests with:
+
+```bash
+python tests/test_breadcrumb_chunker.py
+```

@@ -1,13 +1,27 @@
 import json
-
+import logging
+import os
 # Fix docling imports
-import docling_fix
 import logging
 import time
 from pathlib import Path
 
-from docling.datamodel.base_models import ImageRefMode, PictureItem, TableItem
+from dotenv import load_dotenv
+
+# Replace the import for CustomChunker with BreadcrumbChunker
+from breadcrumb_chunker import BreadcrumbChunker
+load_dotenv()
+
+print("\n"+os.getenv('PYTHONPATH'))
+
+from docling_core.types.doc import ImageRefMode, PictureItem, TableItem
 _log = logging.getLogger(__name__)
+
+from docling.document_converter import DocumentConverter
+from docling.datamodel.base_models import InputFormat
+from docling.document_converter import PdfFormatOption
+from docling.datamodel.pipeline_options import PdfPipelineOptions
+ 
 
 from docling.datamodel.base_models import FigureElement, InputFormat, Table
 from docling.datamodel.pipeline_options import PdfPipelineOptions
@@ -32,7 +46,10 @@ def main():
     pipeline_options.images_scale = IMAGE_RESOLUTION_SCALE
     pipeline_options.generate_page_images = True
     pipeline_options.generate_picture_images = True
-   
+    pipeline_options.do_picture_description = True
+    pipeline_options.
+    pipeline_options.do_ocr = False
+    
 
     doc_converter = DocumentConverter(
         format_options={
@@ -108,10 +125,10 @@ def main():
 
     from docling.chunking import HierarchicalChunker
 
-    
-    chunker = HierarchicalChunker(merge_list_items=True, merge_peers=True)
+    # Replace CustomChunker with our new BreadcrumbChunker
+    chunker = BreadcrumbChunker(merge_list_items=True)
     chunks = chunker.chunk(conv_res_global.document)
-    print(conv_res_global.document.model_dump_json())
+    #print(conv_res_global.document.model_dump_json())
     for chunk in chunks:
        #print(chunk)
         print(chunk.model_dump_json()+'\n')
