@@ -338,8 +338,6 @@ The output JSON chunk fields map exactly to the `fusa_library` table columns as 
 The output JSON has the following structure:
 ```json
 {
-  "chunks": [
-    {
       "_id": null,
       "block_id": 1,
       "doc_id": null,
@@ -383,19 +381,7 @@ The output JSON has the following structure:
         "image_height": 194,
         "image_ocr_text": "Text extracted from the image via OCR"
       }
-    }
-  ],
-  "furniture": [
-    "Header text",
-    "Footer text",
-    "Page number"
-  ],
-  "source_metadata": {
-    "filename": "example.pdf",
-    "mimetype": "application/pdf",
-    "binary_hash": "abc123"
-  }
-}
+
 ```
 
 ## Code Structure

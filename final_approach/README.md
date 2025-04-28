@@ -210,3 +210,65 @@ Run the tests with:
 ```bash
 python tests/test_breadcrumb_chunker.py
 ```
+
+# Docling JSON Parser - Breadcrumb Chunker
+
+This README explains the implementation of our `breadcrumb_chunker.py` module and how it integrates with the document processing pipeline through `externally_ref_images.py`.
+
+## Overview
+
+The BreadcrumbChunker is a specialized document processor that extracts structured content from Docling documents while preserving hierarchical context through breadcrumb paths. It addresses the key requirement of maintaining document structure when converting complex, nested document data into standardized chunks suitable for database storage.
+
+## Implementation Approach
+
+### Core Functionality
+
+The BreadcrumbChunker works by:
+
+1. **Hierarchical Context Tracking**: As it traverses document elements, it tracks the hierarchical path of section headers to create breadcrumb trails.
+
+2. **Element Classification**: Distinguishes between content types (text, images, tables) and processes each appropriately.
+
+3. **Image Reference Mapping**: Maintains relationships between image references in the document and their external storage locations.
+
+4. **Metadata Enrichment**: Attaches contextual metadata including page numbers, coordinates, and surrounding content.
+
+## Integration with Docling
+
+The chunker leverages Docling's document model to:
+
+- Access the document's structured representation
+- Retrieve image data via the Docling API
+- Maintain reference integrity for document elements
+- Preserve the document's reading order
+
+## Usage Example
+
+As demonstrated in `externally_ref_images.py`, the BreadcrumbChunker is used as follows:
+
+```python
+# Initialize the chunker
+chunker = BreadcrumbChunker(merge_list_items=True)
+
+# Process the document with image reference mapping
+chunks = chunker.chunk(document, image_ref_map=image_ref_map)
+
+# The resulting chunks contain structured content with breadcrumb paths
+```
+
+## Output Format
+
+The chunker generates structured content that can be mapped to the standardized JSON format required for database ingestion. This format includes:
+
+- Hierarchical breadcrumb paths
+- Content type classification (text, table, image)
+- Coordinate information for visual placement
+- External file references for images
+- Contextual metadata for search and navigation
+
+## Key Features
+
+- **Full Header Preservation**: Breadcrumbs include complete header text without truncation
+- **Image Reference Management**: Maintains paths to externally stored images
+- **Structural Context**: Preserves document hierarchy for improved navigation
+- **Metadata Enrichment**: Includes page numbers, coordinates, and contextual information

@@ -40,6 +40,7 @@ from docling_core.types.doc.document import (
     TableItem,
     TitleItem,
     UnorderedList,
+    PictureItem,
 )
 
 _VERSION: Final = "1.0.0"
@@ -75,6 +76,14 @@ class DocMeta(BaseMeta):
         default=None,
         alias=_KEY_HEADINGS,
     )
+    chunk_type: Literal["text", "image", "table"] = Field(
+        default="text", 
+        description="Type of content in the chunk."
+    )
+    image_path: Optional[str] = Field(
+        default=None, 
+        description="Relative path to the image file, if chunk_type is 'image'."
+    )
     captions: Optional[list[str]] = Field(  # deprecated
         deprecated=True,
         default=None,
@@ -91,12 +100,18 @@ class DocMeta(BaseMeta):
         _KEY_VERSION,
         _KEY_DOC_ITEMS,
         _KEY_ORIGIN,
+        # Exclude new fields if they shouldn't be in embeddings
+        "chunk_type", 
+        "image_path", 
     ]
     excluded_llm: ClassVar[list[str]] = [
         _KEY_SCHEMA_NAME,
         _KEY_VERSION,
         _KEY_DOC_ITEMS,
         _KEY_ORIGIN,
+        # Exclude new fields from LLM context if desired
+        "chunk_type", 
+        "image_path",
     ]
 
     @field_validator(_KEY_VERSION)
@@ -238,37 +253,32 @@ class BreadcrumbChunker(BaseChunker):
     def chunk(
         self,
         dl_doc: DLDocument,
+        image_ref_map: Optional[dict[str, str]] = None,
         **kwargs: Any,
     ) -> Iterator[BaseChunk]:
         r"""Chunk the provided document.
 
         Args:
             dl_doc (DLDocument): document to chunk
+            image_ref_map (Optional[dict[str, str]]): A map where keys are image item 
+                self_refs (#/pictures/X) and values are their relative output paths.
 
         Yields:
             Iterator[Chunk]: iterator over extracted chunks
         """
         my_doc_ser = self.serializer_provider.get_serializer(doc=dl_doc)
-        
-        # Store the breadcrumb paths by section number
-        section_path_map = {}
-        
-        # Store current active breadcrumbs at each level
-        # This will be a dictionary mapping heading level to the full path at that level
         heading_by_level: dict[LevelNumber, str] = {}
-        
-        # Track the last significant heading for handling unnumbered headings
         last_significant_heading_level = -1
         last_significant_heading = ""
-        
         visited: set[str] = set()
-        ser_res = create_ser_result()
         excluded_refs = my_doc_ser.get_excluded_refs(**kwargs)
+        _image_ref_map = image_ref_map if image_ref_map is not None else {}
 
         for item, _ in dl_doc.iterate_items(with_groups=True):
-            if item.self_ref in excluded_refs:
+            if item.self_ref in excluded_refs or item.self_ref in visited:
                 continue
 
+            # --- 1. Handle Headings & Update Context --- 
             if isinstance(item, (TitleItem, SectionHeaderItem)):
                 # First get the level from the document structure
                 doc_level = item.level if isinstance(item, SectionHeaderItem) else 0
@@ -330,31 +340,72 @@ class BreadcrumbChunker(BaseChunker):
                     last_significant_heading_level = doc_level
                     last_significant_heading = item.text
                 
-                continue
-            elif (
-                isinstance(item, (OrderedList, UnorderedList, InlineGroup, DocItem))
-                and item.self_ref not in visited
-            ):
-                ser_res = my_doc_ser.serialize(item=item, visited=visited)
-            else:
-                continue
-
-            if not ser_res.text:
-                continue
+                visited.add(item.self_ref) # Mark heading as visited
+                continue # Process next item
             
-            if doc_items := [u.item for u in ser_res.spans]:
-                # For content items, find the deepest active breadcrumb
-                breadcrumb_path = None
-                if heading_by_level:
-                    deepest_level = max(heading_by_level.keys())
-                    breadcrumb_path = heading_by_level.get(deepest_level)
+            # --- 2. Get Current Breadcrumb Context --- 
+            breadcrumb_path = None
+            if heading_by_level:
+                deepest_level = max(heading_by_level.keys())
+                breadcrumb_path = heading_by_level.get(deepest_level)
+            
+            # --- 3. Handle Specific Item Types (Image, Table) --- 
+            chunk_generated = False
+            if isinstance(item, PictureItem):
+                image_rel_path = _image_ref_map.get(item.self_ref)
+                if image_rel_path:
+                    caption_res = my_doc_ser.serialize_captions(item=item)
+                    c = DocChunk(
+                        text=caption_res.text or "",
+                        meta=DocMeta(
+                            doc_items=[item], headings=breadcrumb_path,
+                            origin=dl_doc.origin, chunk_type="image",
+                            image_path=image_rel_path
+                        ),
+                    )
+                    yield c
+                    visited.add(item.self_ref)
+                    chunk_generated = True # Mark that we handled this item
+                else:
+                     _logger.warning(f"Image path not found in map for {item.self_ref}")
+                     visited.add(item.self_ref) # Mark as visited even if path missing
+                     chunk_generated = True # Prevent reprocessing
+            
+            elif isinstance(item, TableItem):
+                caption_res = my_doc_ser.serialize_captions(item=item)
+                table_content_ser = ChunkingDocSerializer(doc=dl_doc)
+                table_text_res = table_content_ser.serialize(item=item, exclude_captions=True)
+                combined_text = f"{caption_res.text}\n\n{table_text_res.text}" if caption_res.text else table_text_res.text
                 
                 c = DocChunk(
-                    text=ser_res.text,
+                    text=combined_text.strip(),
                     meta=DocMeta(
-                        doc_items=doc_items,
-                        headings=breadcrumb_path,
-                        origin=dl_doc.origin,
+                        doc_items=[item], headings=breadcrumb_path,
+                        origin=dl_doc.origin, chunk_type="table"
                     ),
                 )
-                yield c 
+                yield c
+                visited.add(item.self_ref)
+                chunk_generated = True # Mark that we handled this item
+
+            # --- 4. Handle General Text Content (if not already processed) --- 
+            if not chunk_generated and isinstance(item, (OrderedList, UnorderedList, InlineGroup, DocItem)):
+                # Serialize the item, importantly passing visited to prevent reprocessing parts of tables/images
+                ser_res = my_doc_ser.serialize(item=item, visited=visited) 
+                if ser_res.text:
+                    chunk_doc_items = [span.item for span in ser_res.spans if hasattr(span, 'item')]
+                    if chunk_doc_items:
+                        c = DocChunk(
+                           text=ser_res.text,
+                           meta=DocMeta(
+                               doc_items=chunk_doc_items, headings=breadcrumb_path,
+                               origin=dl_doc.origin, chunk_type="text"
+                           ),
+                       )
+                        yield c
+                    # visited is updated within serialize
+            elif not chunk_generated:
+                # If it's not a heading, image, table, or standard text container, mark visited to avoid infinite loops? Or log?
+                # For now, let's just ensure non-chunked items are marked visited if they weren't containers.
+                 if not isinstance(item, (OrderedList, UnorderedList, InlineGroup)): # Avoid marking containers as fully visited yet
+                      visited.add(item.self_ref) 
