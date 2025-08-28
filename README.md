@@ -1,6 +1,6 @@
 # Docling Parse
 
-A Python tool for parsing PDF documents using the Docling library, extracting content with proper structure, and generating standardized output.
+This project seems to use docling parsing for LLMWare. The overall objective is to bring docling's accuracy to llmware RAG framework for parsin gtasks.
 
 ## Key Features
 
